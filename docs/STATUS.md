@@ -606,3 +606,71 @@ None. All owner instructions and 20 specific fixes were applied strictly to docu
 None.
 
 **Next: awaiting orchestrator instructions.**
+
+
+---
+
+## Task 11: Backend Scaffold Initialization (infrastructure only)
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/package.json` | Created — dependencies, scripts (`dev`, `build`, `start`, `typecheck`, `lint`, `format`, `test`, `migrate`, `migrate:down`, `seed`, `job:cleanup`) |
+| `backend/package-lock.json` | Generated — lockfile for 325 packages |
+| `backend/tsconfig.json` | Created — NodeNext module resolution, strict mode, target ES2022 |
+| `backend/.prettierrc` | Created — 100 printWidth, semi true, endOfLine auto |
+| `backend/eslint.config.js` | Created — ESLint 9 flat config for TypeScript + Prettier |
+| `backend/vitest.config.ts` | Created — Vitest test runner configuration |
+| `backend/.gitignore` | Created — ignores `node_modules`, `dist`, `.env`, `coverage`, logs |
+| `backend/.env.example` | Created — template environment configuration |
+| `backend/.env` | Created locally (gitignored) |
+| `backend/docker-compose.yml` | Created — PostgreSQL 18-alpine, port `127.0.0.1:5433:5432`, volume `/var/lib/postgresql` |
+| `backend/README.md` | Overwritten — setup guide, directory structure, Docker and dev commands |
+| `backend/src/config/env.ts` | Created — Zod schema validation with production fail-fast checks |
+| `backend/src/config/database.ts` | Created — PoolConfig mapping from validated environment variables |
+| `backend/src/db/pool.ts` | Created — Singleton pg.Pool instance with error hooks |
+| `backend/src/db/transaction.ts` | Created — withTransaction helper for atomic query execution |
+| `backend/src/common/utils/logger.ts` | Created — Pino logger with credential redaction & pretty-printing in dev |
+| `backend/src/common/errors/app-error.ts` | Created — Standard AppError hierarchy matching API error codes |
+| `backend/src/common/middleware/error-handler.ts` | Created — Global error handler returning standard error envelope |
+| `backend/src/common/middleware/validate.ts` | Created — Request schema validation middleware (body, query, params) |
+| `backend/src/common/middleware/request-logger.ts` | Created — HTTP request logger middleware via pino-http |
+| `backend/src/common/middleware/rate-limiter.ts` | Created — General rate limiter middleware (100 req/min) |
+| `backend/src/app.ts` | Created — Express application setup, Helmet, CORS, JSON parser, /health, 404 & error handlers |
+| `backend/src/server.ts` | Created — Server entry point, port listener, graceful shutdown handlers |
+| `backend/src/tests/health.test.ts` | Created — Integration tests for /api/v1/health and 404 responses |
+| `docs/STATUS.md` | Appended Task 11 completion record |
+
+### What was implemented
+
+1. **Backend Infrastructure:** Scaffolding matching the layout defined in `docs/backend-structure-proposal.md`.
+2. **PostgreSQL Container:** Docker Compose configured with PostgreSQL 18-alpine, listening on `127.0.0.1:5433:5432` with named volume `pgdata` mounted to `/var/lib/postgresql`.
+3. **Environment & Database Pool:** Zod-validated configuration ensuring critical secrets cannot be default strings in production; `pg.Pool` instance configured with connection timeout and query hooks.
+4. **Error Handling & Middleware:** Standardized response envelopes (`{ error: { code, message, details } }`), rate limiting (100 req/min), CORS with credentials support, Helmet HTTP security headers.
+5. **Health Endpoint:** `GET /api/v1/health` verifying active database connectivity using `SELECT 1`.
+6. **Graceful Shutdown:** Process signals (`SIGINT`, `SIGTERM`) handled to cleanly drain HTTP connections and close the Postgres pool.
+
+### Commands Run & Real Results
+
+- `cmd /c "docker compose up -d"` in `backend/`: Exited code 0. Image `postgres:18-alpine` pulled; container `fuelpoint-postgres` created and started.
+- `cmd /c "npm install"` in `backend/`: Exited code 0. Added 325 packages.
+- `cmd /c "npm run typecheck"` in `backend/`: Exited code 0. `tsc --noEmit` completed with 0 errors.
+- `cmd /c "npm run format"` in `backend/`: Exited code 0. Prettier formatted files.
+- `cmd /c "npm run lint"` in `backend/`: Exited code 0. ESLint completed with 0 problems.
+- `cmd /c "npm test"` in `backend/`: Exited code 0. 1 test file passed, 2 tests passed (`src/tests/health.test.ts`) using Vitest against the Docker Postgres instance.
+- `cmd /c "npm run build"` in `backend/`: Exited code 0. TypeScript compilation succeeded.
+- `cmd /c "npm run dev"` & `curl -i http://localhost:3000/api/v1/health`: Exited code 0. Returned HTTP 200 OK with `{"status":"ok","timestamp":"2026-10-12T11:12:34.805Z","database":"connected"}`.
+
+### Deviations
+
+None.
+
+### Recommendations
+
+- To prevent Git line-ending warnings across operating systems (CRLF on Windows vs LF in Linux/Docker), a repository root `.gitattributes` file (`* text=auto eol=lf`) is recommended to be added in a subsequent task.
+
+**Next: awaiting orchestrator instructions.**
+
