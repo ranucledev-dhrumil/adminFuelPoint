@@ -25,3 +25,7 @@ export function validateRequest(schema: RequestValidationSchema) {
     }
   };
 }
+
+export function validate(schema: AnyZodObject) {
+  return validateRequest({ body: schema });
+}

@@ -85,6 +85,8 @@ export class TooManyRequestsError extends AppError {
   }
 }
 
+export { TooManyRequestsError as RateLimitError };
+
 export class InternalServerError extends AppError {
   constructor(
     message: string = "Internal server error",

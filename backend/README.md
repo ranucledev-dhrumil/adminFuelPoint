@@ -126,3 +126,33 @@ npm run build
 - **Port Offset (127.0.0.1:5433):** The host Windows machine already runs PostgreSQL 16 on port 5432. The Docker Compose file maps container port 5432 strictly to `127.0.0.1:5433` to prevent collision.
 - **Shell Compatibility:** All npm scripts use standard commands that execute equivalently in Windows `cmd.exe`, PowerShell, and bash.
 - **Line Endings:** Files are formatted with standard LF line endings.
+
+---
+
+## 8. Gmail App Password Setup (for Production SMTP)
+
+FuelPoint sends password reset links and security alert emails via Google Workspace / Gmail SMTP (`smtp.gmail.com:465` over SSL).
+
+> **Note:** In local development (`NODE_ENV=development`), when `SMTP_USER` and `SMTP_PASSWORD` are left blank, emails are automatically logged to the development terminal (with clickable reset links) via `DevEmailLogger`.
+
+To configure real email delivery in staging or production using Gmail:
+
+1. **Enable 2-Step Verification:**
+   - Sign in to your [Google Account](https://myaccount.google.com/).
+   - Go to **Security** in the left sidebar.
+   - Under **How you sign in to Google**, verify that **2-Step Verification** is turned on.
+2. **Generate an App Password:**
+   - Search for **App passwords** in the top search bar, or navigate to **Security** $\rightarrow$ **2-Step Verification** $\rightarrow$ **App passwords** (at the bottom of the page).
+   - Enter an application name (e.g. `FuelPoint Backend` or `FuelPoint Staging`).
+   - Click **Create**.
+   - Google will display a 16-character passcode (formatted as four 4-letter groups, e.g., `abcd efgh ijkl mnop`).
+3. **Configure Environment Variables:**
+   - Copy the 16 characters (without spaces).
+   - In your `.env` file (or deployment environment secrets):
+     ```env
+     SMTP_HOST=smtp.gmail.com
+     SMTP_PORT=465
+     SMTP_USER=your-email@gmail.com
+     SMTP_PASSWORD=abcdefghijklmnop
+     ```
+   - **Never** commit `.env` or the 16-character app password to source control.

@@ -674,3 +674,151 @@ None.
 
 **Next: awaiting orchestrator instructions.**
 
+
+---
+
+## Task 12: Database migrations, seed data and constraint tests
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/migrations/001_extensions_and_types.sql` | Created — `pgcrypto` extension + 9 custom ENUM types with reversible down section |
+| `backend/migrations/002_core_entities.sql` | Created — `groups`, `admin_users`, `customers`, `workers` tables, check constraints, partial unique indexes |
+| `backend/migrations/003_auth_and_verification.sql` | Created — `admin_password_reset_tokens`, `otp_codes`, `refresh_tokens` tables, constraints, cleanup indexes |
+| `backend/migrations/004_activity_and_events.sql` | Created — `transactions`, `notifications`, `audit_logs` tables, money/discount checks, date-range indexes |
+| `backend/migrations/005_triggers_and_functions.sql` | Created — `set_updated_at` function/triggers, `prevent_audit_mutation` function/trigger on `audit_logs` |
+| `backend/src/db/migrate.ts` | Created — programmatic and CLI migration runner using `node-pg-migrate` with `legacySql` loader |
+| `backend/src/seeds/default-group.seed.ts` | Created — idempotent insertion of default group (0% discount, UUID `00000000-0000-0000-0000-000000000001`) |
+| `backend/src/seeds/first-admin.seed.ts` | Created — initial Super Admin seeding with Argon2id hash; password from env or random 16-char generated |
+| `backend/src/seeds/seed.ts` | Created — CLI runner for database seeders (`npm run seed`) |
+| `backend/src/tests/test-db.ts` | Created — connection pool and truncation helpers for dedicated test database (`fuelpoint_test`) |
+| `backend/src/tests/constraints.test.ts` | Created — 18 Vitest tests verifying partial indexes, soft-delete exclusion, check constraints, FK RESTRICT, triggers |
+| `backend/package.json` | Modified — added `node-pg-migrate` dependency; wired `migrate`, `migrate:down`, and `seed` scripts |
+| `backend/package-lock.json` | Modified — updated lockfile for `node-pg-migrate` |
+| `docs/STATUS.md` | Appended Task 12 completion record |
+
+### Differences Between SQL and Schema v5
+
+**None.** The migration files match `docs/db-schema-proposal.md` (v5) exactly across all 10 tables, 9 enums, CHECK constraints, partial unique indexes, foreign keys, and trigger definitions.
+
+### What was implemented
+
+1. **node-pg-migrate Migrations:** Five sequential migration files with matching `-- Up Migration` and `-- Down Migration` sections:
+   - `001_extensions_and_types.sql`: `pgcrypto` + `customer_status`, `worker_shift`, `worker_status`, `transaction_status`, `fuel_type`, `notification_type`, `otp_channel`, `otp_actor_type`, `otp_purpose`.
+   - `002_core_entities.sql`: `groups` (with active name & default group partial unique indexes, 0–100 discount check), `admin_users` (unique email, partial unique non-null phone), `customers` (partial unique active phone & email, global unique QR token, group FK ON DELETE RESTRICT), `workers` (partial unique active phone & email).
+   - `003_auth_and_verification.sql`: `admin_password_reset_tokens` (ON DELETE CASCADE), `otp_codes` (attempts >= 0 check, actor XOR check), `refresh_tokens` (exact one actor check: `num_nonnulls(admin_user_id, customer_id, worker_id) = 1`, actor FKs RESTRICT/CASCADE, `replaced_by` SET NULL).
+   - `004_activity_and_events.sql`: `transactions` (amount > 0, discount percent 0..100, discount amount 0..amount, optional litres > 0, FKs ON DELETE RESTRICT), `notifications` (at most one entity linked check), `audit_logs` (append-only ledger).
+   - `005_triggers_and_functions.sql`: `set_updated_at()` trigger on mutable tables; `prevent_audit_mutation()` trigger enforcing immutable append-only ledger on `audit_logs`.
+2. **Migration Runner:** `src/db/migrate.ts` executing `node-pg-migrate` runner with `legacySql` loader strategy, handling both CLI and programmatic calls across dev and test databases.
+3. **Idempotent Seeds:**
+   - Default group: Idempotent `INSERT ... ON CONFLICT (is_default) WHERE is_default = TRUE AND deleted_at IS NULL DO NOTHING`.
+   - First Admin: Verifies existing admin presence before inserting; hashes password using Argon2id; prints credentials to console when generated or in development.
+4. **Dedicated Test Database (`fuelpoint_test`):** Created and migrated on Docker PostgreSQL port `5433`.
+5. **Constraint & Trigger Test Suite:** 18 tests in `src/tests/constraints.test.ts` verifying all partial unique indexes (with soft-delete exclusion), checks, foreign key RESTRICT behaviors, and database triggers.
+
+### Commands Run & Real Results
+
+- `cmd /c 'docker exec -i fuelpoint-postgres psql -U postgres -d postgres -c "CREATE DATABASE fuelpoint_test;"'`: Exited code 0 (`CREATE DATABASE`).
+- `cmd /c "npm install node-pg-migrate"`: Exited code 0 (added 21 packages).
+- `cmd /c "npx tsx src/db/migrate.ts up"`: Exited code 0 (5 migrations applied to `fuelpoint`).
+- `cmd /c "npx tsx src/db/migrate.ts down 5"`: Exited code 0 (5 migrations reverted cleanly from `fuelpoint`).
+- `cmd /c "npx tsx src/db/migrate.ts up"`: Exited code 0 (5 migrations re-applied to `fuelpoint`).
+- `cmd /c "npx cross-env DB_NAME=fuelpoint_test tsx src/db/migrate.ts up"`: Exited code 0 (5 migrations applied to `fuelpoint_test`).
+- `cmd /c "npm run seed"`: Exited code 0 (default group and first Super Admin seeded; credentials logged).
+- `cmd /c "npm run seed"` (idempotency run): Exited code 0 ("Default group already exists, skipping", "Admin user already exists, skipping admin seed").
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors and 0 warnings).
+- `cmd /c "npm test"`: Exited code 0 (2 test files passed, 20 tests passed: 18 constraint tests + 2 health/404 tests in 6.02s).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
+---
+
+## Task 13: Admin Authentication, Profile, and Password Flows
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/common/types/common.ts` | Created — `AuthActor`, `AccessTokenPayload`, `RefreshTokenRecord` interfaces |
+| `backend/src/common/types/express.d.ts` | Created — ambient module augmentation for Express `Request.actor` |
+| `backend/src/common/utils/crypto.ts` | Created — Argon2id hash/verify, SHA-256 hash, token generation, JWT sign/verify (`jsonwebtoken`) |
+| `backend/src/common/utils/phone.ts` | Created — Indian phone number normalization (+91 E.164 format) |
+| `backend/src/integrations/email/email-sender.interface.ts` | Created — `IEmailSender` contract (`sendPasswordResetEmail`) |
+| `backend/src/integrations/email/nodemailer-gmail.ts` | Created — Production Gmail SMTP transport over SSL via `nodemailer` |
+| `backend/src/integrations/email/dev-email-logger.ts` | Created — Development logger simulating email delivery with clickable console reset URL |
+| `backend/src/integrations/email/index.ts` | Created — factory dynamically resolving active email service based on environment variables |
+| `backend/src/modules/audit/audit.repository.ts` | Created — SQL queries for inserting audit log entries with sensitive field redaction |
+| `backend/src/modules/audit/audit.service.ts` | Created — audit logging service supporting both in-transaction and standalone independent logging |
+| `backend/src/common/middleware/auth.ts` | Created — JWT bearer token verification + live DB `is_active` validation, and role authorization guard (`requireRole`) |
+| `backend/src/common/middleware/validate.ts` | Modified — exported `validate` Zod middleware helper |
+| `backend/src/common/errors/app-error.ts` | Modified — added `RateLimitError` alias class |
+| `backend/src/modules/auth/login-protection.ts` | Created — sliding window per-IP rate limiter (10 attempts / 15 min) and progressive delay calculator (1s, 2s, 4s) |
+| `backend/src/modules/auth/auth.repository.ts` | Created — queries for admin lookup, refresh token management, token rotation, reuse detection revocation, password reset tokens |
+| `backend/src/modules/auth/auth.service.ts` | Created — core domain logic for login, refresh token rotation/reuse revocation, single & all-devices logout, constant-time forgot password, reset password |
+| `backend/src/modules/auth/auth.controller.ts` | Created — HTTP controllers for `/api/v1/auth/*` routes handling cookies and response envelopes |
+| `backend/src/modules/auth/auth.routes.ts` | Created — Express routes with Zod validation schemas for all auth endpoints |
+| `backend/src/modules/admin-users/admin.repository.ts` | Created — repository for admin user retrieval, profile updating, and password change |
+| `backend/src/modules/admin-users/admin.service.ts` | Created — service for profile viewing, updating, and password changing with old password verification |
+| `backend/src/modules/admin-users/admin.controller.ts` | Created — HTTP controllers for `/api/v1/admin/profile` and change password |
+| `backend/src/modules/admin-users/admin.routes.ts` | Created — Express routes with validation schemas for admin profile endpoints |
+| `backend/src/app.ts` | Modified — wired `cookieParser()`, mounted `/api/v1/auth` and `/api/v1/admin` routers |
+| `backend/src/db/migrate.ts` | Modified — configured `advisoryLockMode: "wait"` for safe concurrent migration runs |
+| `backend/vitest.config.ts` | Modified — configured `fileParallelism: false` so test suites execute sequentially against real database |
+| `backend/README.md` | Modified — added step-by-step Gmail App Password setup documentation for production SMTP |
+| `backend/package.json` | Modified — added dependencies: `jsonwebtoken`, `cookie-parser`, `nodemailer` and dev types |
+| `backend/package-lock.json` | Modified — updated package-lock for new dependencies |
+| `backend/src/tests/auth.service.test.ts` | Created — 10 unit tests for Argon2id hashing, SHA-256 tokens, JWT sign/verify, phone normalization, login protection |
+| `backend/src/tests/admin-auth.test.ts` | Created — 15 integration tests for login, refresh rotation, reuse detection revocation, single/all-devices logout, forgot/reset password |
+| `backend/src/tests/admin-profile.test.ts` | Created — 9 integration tests for profile get/patch and password changes |
+| `docs/STATUS.md` | Appended Task 13 completion record |
+
+### What was implemented
+
+1. **Admin Authentication Endpoints (`/api/v1/auth/*`):**
+   - `POST /api/v1/auth/admin/login`: Progressive delay (1s after 2 failed attempts, 2s after 3, 4s after $\ge 4$) + 10 requests per 15 min per IP limit. Standalone audit log recorded on failure without committing a transaction. Returns short-lived access token in body and sets `httpOnly`, `SameSite=Strict`, `Secure` (in prod) refresh token cookie.
+   - `POST /api/v1/auth/refresh`: Reads cookie, verifies SHA-256 token in database. Rotates token immediately. Detects reused revoked tokens: if a revoked token is presented, immediately revokes all descendant and ancestor tokens in the lineage and rejects request with 401.
+   - `POST /api/v1/auth/logout`: Revokes either the current cookie token (`allDevices=false`) or all active refresh tokens for the authenticated admin (`allDevices=true`). Clears cookie.
+   - `POST /api/v1/auth/admin/forgot-password`: Constant-time execution (always takes $\ge 500\text{ms}$) returning generic message regardless of email existence. Generates 32-byte secure token expiring in 1 hour. Dispatches email via `IEmailSender` (logs clickable link to console in dev).
+   - `POST /api/v1/auth/admin/reset-password`: Validates token, hashes new password with Argon2id, marks token used, and immediately revokes all active refresh tokens for the admin.
+2. **Admin Profile Endpoints (`/api/v1/admin/*`):**
+   - `GET /api/v1/admin/profile`: Returns authenticated admin profile excluding password hash.
+   - `PATCH /api/v1/admin/profile`: Updates name and phone with E.164 normalization (+91).
+   - `POST /api/v1/admin/profile/change-password`: Validates current password, hashes new password with Argon2id, and writes audit record.
+3. **Security, Email, and Database Integration:**
+   - Password hashing: Argon2id (memory cost 64MB, 3 iterations, 4 parallelism).
+   - Refresh tokens: SHA-256 hashed in database; raw hex tokens in client cookie.
+   - Access tokens: Signed JWT with `{ sub, role: "admin", aud: "fuelpoint-api" }`, verified via `authMiddleware` that checks database `is_active` on every request.
+   - Audit logging: Append-only ledger recording admin action details with passwords redacted.
+   - Gmail App Password generation guide documented in `backend/README.md`.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm install jsonwebtoken cookie-parser nodemailer && npm install -D @types/jsonwebtoken @types/cookie-parser @types/nodemailer"`: Exited code 0 (added 13 packages).
+- `cmd /c "npm test"`: Exited code 0 (5 test files passed, 54 tests passed in 14.29s).
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+  - `src/tests/auth.service.test.ts` (10 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors and 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
+**Next: awaiting orchestrator instructions.**
+
+

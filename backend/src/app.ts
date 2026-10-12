@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express, type Request, type Response } from "express";
 import helmet from "helmet";
@@ -6,6 +7,8 @@ import { generalRateLimiter } from "./common/middleware/rate-limiter.js";
 import { requestLogger } from "./common/middleware/request-logger.js";
 import { env } from "./config/env.js";
 import { pool } from "./db/pool.js";
+import { authRouter } from "./modules/auth/auth.routes.js";
+import { adminRouter } from "./modules/admin-users/admin.routes.js";
 
 export const app: Express = express();
 
@@ -20,12 +23,17 @@ app.use(
   }),
 );
 
-// Body parsing
+// Body and Cookie parsing
 app.use(express.json());
+app.use(cookieParser());
 
 // Request logging and rate limiting
 app.use(requestLogger);
 app.use(generalRateLimiter);
+
+// Domain Routes
+app.use(`${env.API_PREFIX}/auth`, authRouter);
+app.use(`${env.API_PREFIX}/admin`, adminRouter);
 
 // Health check endpoint
 app.get(`${env.API_PREFIX}/health`, async (_req: Request, res: Response) => {
