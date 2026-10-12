@@ -819,6 +819,157 @@ None.
 
 None.
 
+---
+
+## Task 14: Groups Module (Admin Endpoints)
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/modules/groups/group.repository.ts` | Created — Hand-written SQL queries for groups retrieval with active customer count, unique active name checks, default group resolution, insert, update, toggle active, customer reassignment, and soft delete |
+| `backend/src/modules/groups/group.service.ts` | Created — Domain logic enforcing all business rules: default group immutability guards (cannot delete or deactivate), discount validation (0..100), duplicate name conflict handling, atomic member reassignment to default group on deletion, and transactional audit logging (`group.created`, `group.updated`, `group.toggled`, `group.deleted`) |
+| `backend/src/modules/groups/group.controller.ts` | Created — HTTP controllers for `/api/v1/admin/groups` list, create, edit, toggle-active, and delete endpoints |
+| `backend/src/modules/groups/group.routes.ts` | Created — Express routes with Zod schemas for UUID path parameters and request body validation; protected with `authMiddleware` and `requireRole('admin')` |
+| `backend/src/modules/admin-users/admin.routes.ts` | Modified — Mounted `groupRouter` under `/groups` |
+| `backend/src/common/types/common.ts` | Modified — Exported `AuthActor` alias type |
+| `backend/src/tests/groups.test.ts` | Created — 21 integration tests covering all 5 endpoints, default group protection, duplicate name conflict, discount boundary validation, member reassignment on delete, audit trail verification, and role/auth guards |
+| `docs/STATUS.md` | Appended Task 14 completion record |
+
+### What was implemented
+
+1. **`GET /api/v1/admin/groups`:** Returns all non-deleted groups ordered with the default group first, followed by alphabetical order. Computes real-time `customerCount` matching non-deleted customers.
+2. **`POST /api/v1/admin/groups`:** Creates new group with name, discount percent (0 to 100), optional description, and active status. Rejects duplicate names among non-deleted groups with `409 Conflict` (`DUPLICATE_GROUP_NAME`). Records `group.created` audit log in the same database transaction.
+3. **`PATCH /api/v1/admin/groups/:id`:** Edits group name, discount percent, and description. Allows editing name and discount percent for the default group. Validates name uniqueness if changed. Records `group.updated` audit log capturing changed fields in the same database transaction.
+4. **`PATCH /api/v1/admin/groups/:id/toggle-active`:** Toggles group `active` status. Enforces rule that the default group cannot be deactivated (`400 Bad Request`, `CANNOT_DEACTIVATE_DEFAULT_GROUP`). Records `group.toggled` audit log in the same database transaction.
+5. **`DELETE /api/v1/admin/groups/:id`:** Soft deletes a group (`deleted_at = now()`). Enforces rule that the default group cannot be deleted (`400 Bad Request`, `CANNOT_DELETE_DEFAULT_GROUP`). In the exact same database transaction, atomically reassigns all customers in the deleted group to the default group before setting `deleted_at`, and records `group.deleted` with the count of reassigned members in the audit log.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm test"`: Exited code 0 (6 test files passed, 75 tests passed in 21.47s).
+  - `src/tests/groups.test.ts` (21 tests passed)
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/auth.service.test.ts` (10 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors, 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
+---
+
+## Task 15: Customers Module (Admin Endpoints)
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/common/utils/email.ts` | Created — Email normalization (`toLowerCase()`, whitespace trimming, format check) |
+| `backend/src/common/utils/crypto.ts` | Modified — Added `generateQrToken()` with 192 bits of entropy in URL-safe base64 |
+| `backend/src/modules/customers/customer.repository.ts` | Created — Repository for customer queries, server-side pagination, search `q`, status/group filtering, success transaction aggregates, lock-for-update, token revocations, and soft deletion |
+| `backend/src/modules/customers/customer.service.ts` | Created — Service handling customer creation (NO notification, phone/email validation, default group fallback), detail with recent transactions, edit with uniqueness checks, status updates with token revocations, group assignment, soft deletion with token revocations, and transactional audit logging |
+| `backend/src/modules/customers/customer.controller.ts` | Created — HTTP controllers for `/api/v1/admin/customers` endpoints |
+| `backend/src/modules/customers/customer.routes.ts` | Created — Express routes with Zod validation schemas for query parameters, UUID path parameters, and request payloads; protected with `authMiddleware` and `requireRole('admin')` |
+| `backend/src/modules/admin-users/admin.routes.ts` | Modified — Mounted `customerRouter` under `/customers` |
+| `backend/src/tests/auth.service.test.ts` | Modified — Added 4 unit tests for `normalizeEmail` and `generateQrToken` |
+| `backend/src/tests/customers.test.ts` | Created — 22 integration tests covering all 7 customer endpoints, success transaction aggregates, filtering, search, token revocations on inactive and soft delete, and audit logging |
+| `docs/STATUS.md` | Appended Task 15 completion record |
+
+### What was implemented
+
+1. **`GET /api/v1/admin/customers`:** Server-side pagination (`page`, `limit`), sorting (`sort_by`, `order`), search (`q` across name, phone, email, vehicle), and filtering (`status`, `group_id`). Computes `transactions`, `totalSpend`, and `discountReceived` aggregates counting `success` transactions only. Excludes soft-deleted records.
+2. **`GET /api/v1/admin/customers/:id`:** Retrieves customer profile, aggregates, group metadata, `qrToken`, and up to 10 `recentTransactions`.
+3. **`POST /api/v1/admin/customers`:** Admin customer creation. Normalizes phone (+91 E.164) and lowercases email. Generates $\ge 128$-bit URL-safe `qr_token`. Resolves target group or falls back to default group. Confirmed rule: **creates NO notification**. Commits `customer.created` audit log in the same database transaction.
+4. **`PATCH /api/v1/admin/customers/:id`:** Updates customer name, phone, email, and vehicle. Enforces unique phone and email checks across non-deleted customers. Commits `customer.updated` audit log with old and new values in the same database transaction.
+5. **`PATCH /api/v1/admin/customers/:id/status`:** Toggles customer between `active` and `inactive`. Enforces rule: **setting a customer inactive immediately revokes all active refresh tokens for that customer**. Commits `customer.status_changed` audit log in the same database transaction.
+6. **`PATCH /api/v1/admin/customers/:id/group`:** Reassigns a customer to an active group. Commits `customer.group_assigned` audit log with previous and new group details in the same database transaction.
+7. **`DELETE /api/v1/admin/customers/:id`:** Soft deletes customer (`deleted_at = now()`). Enforces rule: **soft-deleting a customer immediately revokes all active refresh tokens for that customer**. Commits `customer.deleted` audit log in the same database transaction.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm test"`: Exited code 0 (7 test files passed, 101 tests passed in 25.51s).
+  - `src/tests/customers.test.ts` (22 tests passed)
+  - `src/tests/groups.test.ts` (21 tests passed)
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/auth.service.test.ts` (14 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors, 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
+---
+
+## Task 16: Workers Module (Admin Endpoints)
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/modules/workers/worker.repository.ts` | Created — Hand-written SQL queries for worker listing with server-side pagination, sorting, search `q`, status and shift filters, scans and success-transaction aggregates, lock-for-update, refresh token revocation, recent transactions, and soft delete |
+| `backend/src/modules/workers/worker.service.ts` | Created — Domain logic for worker operations: phone and email normalization, duplicate checks across non-deleted workers, status transition rules (suspending revokes active tokens; offline does not revoke tokens), soft deletion (revokes active tokens), and transactional audit logging (`worker.created`, `worker.updated`, `worker.status_changed`, `worker.deleted`) |
+| `backend/src/modules/workers/worker.controller.ts` | Created — HTTP controllers for `/api/v1/admin/workers` endpoints |
+| `backend/src/modules/workers/worker.routes.ts` | Created — Express routes with Zod validation schemas for query parameters, UUID path parameters, and request bodies; protected with `authMiddleware` and `requireRole('admin')` |
+| `backend/src/modules/admin-users/admin.routes.ts` | Modified — Mounted `workerRouter` under `/workers` |
+| `backend/src/tests/workers.test.ts` | Created — 23 integration tests covering all 6 worker endpoints, status and shift filters, search `q`, success vs submitted aggregates, token revocations on suspension and soft delete, and transactional audit logs |
+| `docs/STATUS.md` | Appended Task 16 completion record |
+
+### What was implemented
+
+1. **`GET /api/v1/admin/workers`:** Server-side pagination (`page`, `limit`), sorting (`sort_by`, `order`), search (`q` across name, phone, email), and filters (`status`, `shift`). Computes aggregates:
+   - `scans`: Total submitted transactions (`COUNT(t.id)` across all statuses)
+   - `transactions`: Count of `success` transactions
+   - `customersScanned`: Unique customers with `success` transactions (`COUNT(DISTINCT t.customer_id)`)
+   - `discountProcessed`: Sum of `discount_amount` on `success` transactions
+   - Excludes soft-deleted workers.
+2. **`GET /api/v1/admin/workers/:id`:** Retrieves worker profile with timestamps, performance aggregates, and up to 10 `recentTransactions` ordered by `submitted_at DESC`.
+3. **`POST /api/v1/admin/workers`:** Creates a worker (name, phone, email, shift, optional status defaulting to `active`). Normalizes phone (+91 E.164) and lowercases email. Rejects duplicates with `409 Conflict`. Commits `worker.created` audit log in the same database transaction.
+4. **`PATCH /api/v1/admin/workers/:id`:** Edits worker name, phone, email, or shift. Validates format and uniqueness on changed phone/email. Commits `worker.updated` audit log with diff of changed fields in the same database transaction.
+5. **`PATCH /api/v1/admin/workers/:id/status`:** Updates status (`active`, `offline`, `suspended`). Enforces rule:
+   - Setting `suspended`: Immediately revokes all active refresh tokens for the worker.
+   - Setting `offline`: Does **NOT** revoke refresh tokens (per-request middleware status check blocks execution until active).
+   - Commits `worker.status_changed` audit log in the same database transaction.
+6. **`DELETE /api/v1/admin/workers/:id`:** Soft deletes worker (`deleted_at = now()`). Explicitly revokes all active refresh tokens for the worker. Commits `worker.deleted` audit log in the same database transaction. Excludes deleted worker from subsequent list and detail requests (`404 Not Found`).
+
+### Commands Run & Real Results
+
+- `cmd /c "npm test"`: Exited code 0 (8 test files passed, 124 tests passed in 34.17s).
+  - `src/tests/workers.test.ts` (23 tests passed)
+  - `src/tests/customers.test.ts` (22 tests passed)
+  - `src/tests/groups.test.ts` (21 tests passed)
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/auth.service.test.ts` (14 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors, 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
 **Next: awaiting orchestrator instructions.**
+
 
 

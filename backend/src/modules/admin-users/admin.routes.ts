@@ -4,6 +4,8 @@ import { validate } from "../../common/middleware/validate.js";
 import { authMiddleware, requireRole } from "../../common/middleware/auth.js";
 import { adminController } from "./admin.controller.js";
 import { groupRouter } from "../groups/group.routes.js";
+import { customerRouter } from "../customers/customer.routes.js";
+import { workerRouter } from "../workers/worker.routes.js";
 
 const router = Router();
 
@@ -29,5 +31,7 @@ router.post(
 );
 
 router.use("/groups", groupRouter);
+router.use("/customers", customerRouter);
+router.use("/workers", workerRouter);
 
 export const adminRouter = router;

@@ -4,11 +4,13 @@ import {
   verifyPassword,
   hashSha256,
   generateOpaqueToken,
+  generateQrToken,
   signAccessToken,
   verifyAccessToken,
 } from "../common/utils/crypto.js";
 import { LoginProtectionManager } from "../modules/auth/login-protection.js";
 import { normalizeIndianPhone, isValidIndianPhone } from "../common/utils/phone.js";
+import { normalizeEmail, isValidEmailFormat } from "../common/utils/email.js";
 
 describe("Auth Utilities & Login Protection Unit Tests", () => {
   describe("Crypto & Tokens", () => {
@@ -37,6 +39,16 @@ describe("Auth Utilities & Login Protection Unit Tests", () => {
 
       expect(token1).toHaveLength(64); // 32 bytes hex = 64 characters
       expect(token2).toHaveLength(64);
+      expect(token1).not.toBe(token2);
+    });
+
+    it("generates URL-safe QR tokens with at least 128 bits of randomness", () => {
+      const token1 = generateQrToken();
+      const token2 = generateQrToken();
+
+      expect(token1.length).toBeGreaterThanOrEqual(24);
+      // URL-safe base64 characters only
+      expect(/^[A-Za-z0-9_-]+$/.test(token1)).toBe(true);
       expect(token1).not.toBe(token2);
     });
 
@@ -83,6 +95,27 @@ describe("Auth Utilities & Login Protection Unit Tests", () => {
     it("checks validity with isValidIndianPhone", () => {
       expect(isValidIndianPhone("9876543210")).toBe(true);
       expect(isValidIndianPhone("1234567890")).toBe(false);
+    });
+  });
+
+  describe("Email Normalization", () => {
+    it("converts uppercase/mixed-case emails to lowercase and trims surrounding whitespace", () => {
+      expect(normalizeEmail("  Customer.Name@Example.COM  ")).toBe("customer.name@example.com");
+      expect(normalizeEmail("RAJESH@PUMP.IN")).toBe("rajesh@pump.in");
+    });
+
+    it("returns null for empty, whitespace-only, null, or undefined email values", () => {
+      expect(normalizeEmail("")).toBeNull();
+      expect(normalizeEmail("   ")).toBeNull();
+      expect(normalizeEmail(null)).toBeNull();
+      expect(normalizeEmail(undefined)).toBeNull();
+    });
+
+    it("validates email formats with isValidEmailFormat", () => {
+      expect(isValidEmailFormat("customer@example.com")).toBe(true);
+      expect(isValidEmailFormat("invalid-email")).toBe(false);
+      expect(isValidEmailFormat("")).toBe(false);
+      expect(isValidEmailFormat(null)).toBe(false);
     });
   });
 

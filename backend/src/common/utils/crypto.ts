@@ -24,6 +24,11 @@ export function generateOpaqueToken(byteLength = 32): string {
   return crypto.randomBytes(byteLength).toString("hex");
 }
 
+export function generateQrToken(): string {
+  // 192 bits (24 bytes) of secure randomness encoded in URL-safe base64 (32 chars)
+  return crypto.randomBytes(24).toString("base64url");
+}
+
 export function signAccessToken(payload: {
   sub: string;
   role: ActorRole;
