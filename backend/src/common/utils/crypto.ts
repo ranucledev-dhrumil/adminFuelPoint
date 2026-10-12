@@ -29,6 +29,11 @@ export function generateQrToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
+export function generateOtp(): string {
+  // Cryptographically secure 6-digit numeric code (100000 to 999999)
+  return crypto.randomInt(100000, 1000000).toString();
+}
+
 export function signAccessToken(payload: {
   sub: string;
   role: ActorRole;

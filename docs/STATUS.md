@@ -969,7 +969,87 @@ None.
 
 None.
 
+---
+
+## Task 17: OTP Module, Customer Registration, Worker/Customer Login & QR Management
+
+**Date:** 2026-10-12
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/common/utils/crypto.ts` | Modified — Added cryptographically secure 6-digit numeric generator `generateOtp()` |
+| `backend/src/integrations/sms/sms-sender.interface.ts` | Created — Defined `ISmsSender` interface for sending SMS notifications and OTPs |
+| `backend/src/integrations/sms/console-sms-sender.ts` | Created — Development SMS sender logging masked dispatch / simulated OTP to console and recording history for testing |
+| `backend/src/integrations/sms/index.ts` | Created — Exported singleton `smsSender` instance |
+| `backend/src/modules/notifications/notification.repository.ts` | Created — Repository for inserting system notifications (`worker`, `registration`) |
+| `backend/src/modules/notifications/notification.service.ts` | Created — Notification service for worker first login and customer self-registration events |
+| `backend/src/modules/otp/otp.repository.ts` | Created — Repository managing `otp_codes` table with rate limits (cooldown, destination hourly, IP hourly), verification, attempt tracking, and consumption |
+| `backend/src/modules/otp/otp.service.ts` | Created — Domain logic for OTP generation, sending, verification for registration & login, rate limit enforcement, and timing-safe handling for unknown login phone |
+| `backend/src/modules/customers/customer-mobile.service.ts` | Created — Domain service handling customer registration (placing in default group, generating 192-bit URL-safe QR token, transactional audit logging `customer.created`), retrieving QR data, and atomic QR code regeneration (`customer.qr_regenerated` audit log with zero token leakage) |
+| `backend/src/modules/customers/customer-mobile.controller.ts` | Created — HTTP controllers for `/api/v1/customer/register`, `/api/v1/customer/qr`, and `/api/v1/customer/qr/regenerate` |
+| `backend/src/modules/customers/customer-mobile.routes.ts` | Created — Routes with Zod validation schemas and authentication middleware for customer mobile endpoints |
+| `backend/src/modules/auth/auth.service.ts` | Modified — Extended token refresh and logout to support customer and worker actors, enforcing 30-day token rotation, status verification, reuse detection (revoking all sessions), and `allDevices: true` logout |
+| `backend/src/modules/auth/auth.controller.ts` | Modified — Added `requestOtp` and `verifyOtp` handlers, and enhanced refresh/logout to accept tokens in request body for mobile apps |
+| `backend/src/modules/auth/auth.routes.ts` | Modified — Mounted `/otp/request` and `/otp/verify` endpoints with rate limiting and Zod validation |
+| `backend/src/common/middleware/auth.ts` | Modified — Enforced active account status check for customer and worker tokens on protected routes |
+| `backend/src/app.ts` | Modified — Mounted `customerMobileRouter` under `/api/v1/customer` |
+| `backend/src/tests/otp.test.ts` | Created — 24 comprehensive integration tests covering OTP request/verify flows, registration, worker/customer login, cooldown/rate limiting, QR retrieval/regeneration, audit logging, and token rotation |
+| `docs/STATUS.md` | Appended Task 17 completion record |
+
+### What was implemented
+
+1. **`POST /api/v1/auth/otp/request`:**
+   - Validates purpose (`login` or `register`) and phone format (10-digit Indian number normalized to `+91XXXXXXXXXX`).
+   - Rate limiting: 60-second cooldown per destination, 5 requests/hour per destination, and 10 registration requests/hour per IP address.
+   - For `purpose: 'register'`: checks customer uniqueness. Returns `409 Conflict` if phone is already registered. Generates and stores 6-digit OTP code hash in `otp_codes` (5-minute expiry).
+   - For `purpose: 'login'`: resolves actor across customers and workers. For unregistered numbers, returns standard timing-safe response (`200 OK`, `{"message": "Code sent", "cooldown": 60}`) without inserting rows or dispatching SMS.
+2. **`POST /api/v1/auth/otp/verify`:**
+   - Dedicated login verification endpoint. Checks OTP hash, expiry, and max 5 attempts.
+   - Rejects inactive/soft-deleted customers (`403 Forbidden`).
+   - Rejects offline workers (`403 WORKER_NOT_ACTIVE`) and suspended workers (`403 WORKER_SUSPENDED`).
+   - For worker's first login: atomically updates `first_login_at` and creates a `worker` system notification.
+   - Marks OTP code consumed and generates access and 30-day refresh tokens.
+3. **`POST /api/v1/customer/register`:**
+   - Verifies OTP code directly for registration.
+   - Creates new customer record in default group (`DEFAULT_GROUP_ID`) with `active` status.
+   - Generates 192-bit URL-safe QR token.
+   - Emits system notification `registration` and audit log `customer.created`.
+   - Returns authentication tokens and customer payload.
+4. **`GET /api/v1/customer/qr`:**
+   - Customer-only endpoint returning current `qrToken`, `name`, `phone`, and `group` name.
+5. **`POST /api/v1/customer/qr/regenerate`:**
+   - Customer-only endpoint atomically rotating the `qr_token`.
+   - Writes transactional audit log `customer.qr_regenerated` with **no** token value recorded in the log.
+6. **Mobile Token Rotation & Logout:**
+   - `POST /api/v1/auth/refresh` & `POST /api/v1/auth/logout` support passing `refreshToken` directly in the request body (with fallback to HTTP-only cookie).
+   - Validates actor active status on refresh.
+   - Enforces 30-day rotation, reuse detection (all tokens for actor revoked on token reuse), and supports `allDevices: true`.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm test"`: Exited code 0 (9 test files passed, 148 tests passed in 40.20s).
+  - `src/tests/otp.test.ts` (24 tests passed)
+  - `src/tests/workers.test.ts` (23 tests passed)
+  - `src/tests/customers.test.ts` (22 tests passed)
+  - `src/tests/groups.test.ts` (21 tests passed)
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/auth.service.test.ts` (14 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors, 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
 **Next: awaiting orchestrator instructions.**
+
 
 
 

@@ -20,6 +20,19 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(8, "New password must be at least 8 characters"),
 });
 
+const requestOtpSchema = z.object({
+  destination: z.string().trim().min(10, "Destination must be at least 10 digits"),
+  purpose: z.enum(["login", "register"]),
+  channel: z.enum(["sms", "email"]).optional().default("sms"),
+  actor_type: z.enum(["customer", "worker"]).optional(),
+});
+
+const verifyOtpSchema = z.object({
+  destination: z.string().trim().min(10, "Destination must be at least 10 digits"),
+  code: z.string().trim().length(6, "OTP code must be 6 digits"),
+  actor_type: z.enum(["customer", "worker"]),
+});
+
 function optionalAuth(req: Request, res: Response, next: NextFunction): void {
   if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
     authMiddleware(req, res, next);
@@ -28,6 +41,8 @@ function optionalAuth(req: Request, res: Response, next: NextFunction): void {
   }
 }
 
+router.post("/otp/request", validate(requestOtpSchema), authController.requestOtp);
+router.post("/otp/verify", validate(verifyOtpSchema), authController.verifyOtp);
 router.post("/admin/login", validate(loginSchema), authController.loginAdmin);
 router.post("/refresh", authController.refreshToken);
 router.post("/logout", optionalAuth, authController.logout);

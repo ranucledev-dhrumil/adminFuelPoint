@@ -9,6 +9,7 @@ import { env } from "./config/env.js";
 import { pool } from "./db/pool.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { adminRouter } from "./modules/admin-users/admin.routes.js";
+import { customerMobileRouter } from "./modules/customers/customer-mobile.routes.js";
 
 export const app: Express = express();
 
@@ -34,6 +35,7 @@ app.use(generalRateLimiter);
 // Domain Routes
 app.use(`${env.API_PREFIX}/auth`, authRouter);
 app.use(`${env.API_PREFIX}/admin`, adminRouter);
+app.use(`${env.API_PREFIX}/customer`, customerMobileRouter);
 
 // Health check endpoint
 app.get(`${env.API_PREFIX}/health`, async (_req: Request, res: Response) => {

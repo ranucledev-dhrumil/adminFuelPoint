@@ -35,6 +35,28 @@ export async function authMiddleware(
       if (!admin.is_active) {
         return next(new ForbiddenError("Admin account is deactivated.", "ADMIN_DEACTIVATED"));
       }
+    } else if (claims.role === "customer") {
+      const result = await pool.query(
+        "SELECT id, status FROM customers WHERE id = $1 AND deleted_at IS NULL",
+        [claims.sub],
+      );
+      if (result.rows.length > 0 && result.rows[0].status !== "active") {
+        return next(new ForbiddenError("Customer account is inactive.", "CUSTOMER_INACTIVE"));
+      }
+    } else if (claims.role === "worker") {
+      const result = await pool.query(
+        "SELECT id, status FROM workers WHERE id = $1 AND deleted_at IS NULL",
+        [claims.sub],
+      );
+      if (result.rows.length > 0) {
+        const worker = result.rows[0];
+        if (worker.status === "offline") {
+          return next(new ForbiddenError("Worker is currently offline.", "WORKER_NOT_ACTIVE"));
+        }
+        if (worker.status === "suspended" || worker.status !== "active") {
+          return next(new ForbiddenError("Worker account is suspended.", "WORKER_SUSPENDED"));
+        }
+      }
     }
 
     req.actor = claims;

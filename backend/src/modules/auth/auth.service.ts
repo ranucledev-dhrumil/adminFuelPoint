@@ -14,6 +14,8 @@ import {
   BadRequestError,
 } from "../../common/errors/app-error.js";
 import { adminRepository, type AdminUserRow } from "../admin-users/admin.repository.js";
+import { customerRepository } from "../customers/customer.repository.js";
+import { workerRepository } from "../workers/worker.repository.js";
 import { authRepository } from "./auth.repository.js";
 import { auditService } from "../audit/audit.service.js";
 import { emailSender } from "../../integrations/email/index.js";
@@ -210,6 +212,97 @@ export class AuthService {
       };
     }
 
+    // Customer actor verification
+    if (tokenRow.customer_id) {
+      const customer = await customerRepository.findById(tokenRow.customer_id);
+      if (!customer || customer.deleted_at) {
+        await authRepository.revokeAllTokensForActor({ customerId: tokenRow.customer_id });
+        throw new ForbiddenError("Customer account not found.", "CUSTOMER_NOT_FOUND");
+      }
+      if (customer.status !== "active") {
+        await authRepository.revokeAllTokensForActor({ customerId: tokenRow.customer_id });
+        throw new ForbiddenError("Customer account is inactive.", "CUSTOMER_INACTIVE");
+      }
+
+      const newRawRefreshToken = generateOpaqueToken(32);
+      const newTokenHash = hashSha256(newRawRefreshToken);
+      const expiresAt = new Date(
+        Date.now() + env.USER_REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+      );
+
+      await withTransaction(pool, async (client) => {
+        const newId = await authRepository.createRefreshToken(
+          {
+            tokenHash: newTokenHash,
+            customerId: customer.id,
+            expiresAt,
+            ipAddress: ip,
+            userAgent,
+          },
+          client,
+        );
+        await authRepository.rotateRefreshToken(tokenRow.id, newId, client);
+      });
+
+      const accessToken = signAccessToken({
+        sub: customer.id,
+        role: "customer",
+        aud: "fuelpoint-customer",
+      });
+
+      return {
+        accessToken,
+        refreshToken: newRawRefreshToken,
+      };
+    }
+
+    // Worker actor verification
+    if (tokenRow.worker_id) {
+      const worker = await workerRepository.findById(tokenRow.worker_id);
+      if (!worker || worker.deleted_at) {
+        await authRepository.revokeAllTokensForActor({ workerId: tokenRow.worker_id });
+        throw new ForbiddenError("Worker account not found.", "WORKER_NOT_FOUND");
+      }
+      if (worker.status !== "active") {
+        if (worker.status === "suspended") {
+          await authRepository.revokeAllTokensForActor({ workerId: tokenRow.worker_id });
+          throw new ForbiddenError("Worker account is suspended.", "WORKER_SUSPENDED");
+        }
+        throw new ForbiddenError("Worker is currently offline or suspended.", "WORKER_NOT_ACTIVE");
+      }
+
+      const newRawRefreshToken = generateOpaqueToken(32);
+      const newTokenHash = hashSha256(newRawRefreshToken);
+      const expiresAt = new Date(
+        Date.now() + env.USER_REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+      );
+
+      await withTransaction(pool, async (client) => {
+        const newId = await authRepository.createRefreshToken(
+          {
+            tokenHash: newTokenHash,
+            workerId: worker.id,
+            expiresAt,
+            ipAddress: ip,
+            userAgent,
+          },
+          client,
+        );
+        await authRepository.rotateRefreshToken(tokenRow.id, newId, client);
+      });
+
+      const accessToken = signAccessToken({
+        sub: worker.id,
+        role: "worker",
+        aud: "fuelpoint-worker",
+      });
+
+      return {
+        accessToken,
+        refreshToken: newRawRefreshToken,
+      };
+    }
+
     throw new UnauthorizedError("Unsupported actor type for refresh token.", "UNAUTHORIZED");
   }
 
@@ -240,6 +333,10 @@ export class AuthService {
           ipAddress: ip,
           userAgent,
         });
+      } else if (actor.role === "customer") {
+        await authRepository.revokeAllTokensForActor({ customerId: actor.sub });
+      } else if (actor.role === "worker") {
+        await authRepository.revokeAllTokensForActor({ workerId: actor.sub });
       }
     } else {
       if (rawToken) {

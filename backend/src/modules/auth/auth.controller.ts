@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { env } from "../../config/env.js";
 import { authService } from "./auth.service.js";
+import { otpService } from "../otp/otp.service.js";
 
 export class AuthController {
   private setRefreshCookie(res: Response, token: string): void {
@@ -21,6 +22,27 @@ export class AuthController {
       path: "/api/v1/auth",
     });
   }
+
+  requestOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const ip = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const result = await otpService.requestOtp(req.body, ip);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  verifyOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const ip = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const userAgent = req.headers["user-agent"];
+      const result = await otpService.verifyLoginOtp(req.body, ip, userAgent);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
 
   loginAdmin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
