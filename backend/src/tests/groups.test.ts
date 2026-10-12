@@ -137,7 +137,7 @@ describe("Admin Groups Management Integration Tests", () => {
       expect(res.body.groups[0].customerCount).toBe(1);
 
       // Fleet VIP has 2 active customers
-      const fleetGroup = res.body.groups.find((g: any) => g.id === fleetId);
+      const fleetGroup = res.body.groups.find((g: { id: string }) => g.id === fleetId);
       expect(fleetGroup).toBeDefined();
       expect(fleetGroup.name).toBe("Fleet VIP");
       expect(fleetGroup.discountPercent).toBe("5.00");
