@@ -1491,3 +1491,83 @@ None.
 
 
 
+
+---
+
+## Task 21: End-to-End Tests, Postman Collection & Finalisation
+
+**Date:** 2026-10-13
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/tests/e2e.test.ts` | Created — Comprehensive automated end-to-end integration test covering complete 13-step operational lifecycle |
+| `backend/postman/FuelPoint_API.postman_collection.json` | Created — Production-ready Postman collection with 14 folders covering all REST API endpoints |
+| `backend/postman/FuelPoint_Local.postman_environment.json` | Created — Postman environment configuration with dynamic script variables (`adminToken`, `workerToken`, etc.) |
+| `backend/README.md` | Modified — Updated with complete API guide, Postman import instructions, security architecture, and E2E test commands |
+| `docs/PROJECT_CONTEXT.md` | Modified — Synchronized project handoff guide with Tasks 11–21 completion, repository status, and run commands |
+| `docs/STATUS.md` | Appended Task 21 completion record |
+
+### What was implemented
+
+1. **Automated End-to-End Test Suite (`backend/src/tests/e2e.test.ts`):**
+   - **Step 1:** Admin signs in (`POST /api/v1/auth/admin/login`), verifies `httpOnly` refresh cookie, obtains access token.
+   - **Step 2:** Admin creates group ("Fleet Gold", 8.5% discount), customer ("Vijay M"), and worker ("Attendant Amit", active, morning shift).
+   - **Step 3:** Customer registers via OTP: requests registration OTP (`POST /api/v1/auth/otp/request`), retrieves simulated code from `smsSender`, completes self-registration (`POST /api/v1/customer/register`), obtains customer JWT and unique QR loyalty token, and is reassigned to Fleet Gold group.
+   - **Step 4:** Worker logs in via OTP: requests login OTP (`POST /api/v1/auth/otp/request`), verifies OTP (`POST /api/v1/auth/otp/verify`), obtains worker JWT.
+   - **Step 5:** Worker scans customer QR code (`POST /api/v1/worker/scan`): verifies customer name, group, discount, and obtains a signed 5-minute HMAC-SHA256 `scanTicket`.
+   - **Step 6:** Worker submits fuelling transactions (`POST /api/v1/worker/transactions`): submits transaction 1 (1000 INR, Petrol, 10L, 85 INR discount) and transaction 2 (500 INR, Diesel, 5L).
+   - **Step 7:** Worker marks transaction status (`PATCH /api/v1/worker/transactions/:id/status`): marks both transactions as `success`, verifying `resolvedAt` timestamp.
+   - **Step 8:** Admin overrides transaction status (`PATCH /api/v1/admin/transactions/:id/status`): transitions transaction 2 from `success` to `failed` with mandatory audit reason (`failureReason: "Card payment declined at dispenser"`).
+   - **Step 9a:** Verifies Dashboard overview metrics (`GET /admin/dashboard/overview`) and series buckets (`GET /admin/dashboard/series?days=7`).
+   - **Step 9b:** Verifies Reports summary metrics (`GET /admin/reports/summary?category=transactions`).
+   - **Step 9c:** Verifies Audit logs (`GET /admin/audit-logs`) capturing `customer.created`, `worker.created`, `group.created`, `transaction.created`, and `transaction.status_changed`.
+   - **Step 9d:** Verifies Notifications (`GET /admin/notifications`) capturing customer self-registration and worker first-login alerts.
+   - **Step 9e:** Verifies CSV export (`GET /admin/reports/export?category=transactions&format=csv`) streaming CSV header and transaction data rows.
+
+2. **Postman Collection & Environment (`backend/postman/`):**
+   - `FuelPoint_API.postman_collection.json`: 14 categorized folders containing pre-configured requests with JSON schemas, query params, headers, and test scripts:
+     - `01. Auth`: Admin Login, Refresh Token, Logout, Request OTP, Verify OTP, Forgot Password, Reset Password.
+     - `02. Admin Profile`: Get Profile, Update Profile, Change Password.
+     - `03. Admin Groups`: List Groups, Create Group, Update Group, Toggle Active, Delete Group.
+     - `04. Admin Customers`: List Customers, Create Customer, Get Details, Update, Update Status, Assign Group, Delete.
+     - `05. Admin Workers`: List Workers, Create Worker, Get Details, Update, Update Status, Delete.
+     - `06. Admin Transactions`: List Transactions, Get Details, Status Override.
+     - `07. Admin Dashboard`: Overview, Series, Worker Activity, Group Distribution.
+     - `08. Admin Reports`: Category Summary, Export CSV.
+     - `09. Admin Search`: Global Search.
+     - `10. Admin Notifications`: List Notifications, Mark Read, Mark All Read.
+     - `11. Admin Audit Logs`: List Audit Logs.
+     - `12. Customer Mobile App`: Register (with OTP), Get QR, Regenerate QR, Transactions History.
+     - `13. Worker Mobile App`: Scan QR, Submit Transaction, Update Status, Transactions History.
+     - `14. Health Check`: System Health.
+   - `FuelPoint_Local.postman_environment.json`: Local environment config holding `baseUrl`, `adminToken`, `workerToken`, `customerToken`, `groupId`, `customerId`, `workerId`, `transactionId`, `scanTicket`, `qrToken`, and `notificationId`.
+
+3. **Security Checklist Verification:**
+   - **Secrets & Credentials:** No hardcoded tokens, passwords, API keys, or OTPs committed. Secrets stored in `.env` and environment variables.
+   - **Logging Redaction:** Pino structured logger actively redacts sensitive keys (`password`, `code`, `token`, `refreshToken`, `accessToken`, `jwt`, `secret`, `authorization`, `cookie`).
+   - **Rate Limiting:** General API limiter (300 req / 15m), Auth limiter (20 attempts / 15m), OTP limiters (10 reg OTPs/hr per IP, 5 OTPs/hr per destination, 60s cooldown), Worker scan limiter (60 scans/min).
+   - **Status Guards:** Inactive/offline/suspended actors barred from access; status transitions to inactive immediately revoke active refresh tokens.
+   - **Cookies & Session:** Refresh token cookie configured with `httpOnly: true`, `secure: production`, `sameSite: "strict"`, and path-restricted to `/api/v1/auth`.
+   - **CORS:** Strict origin validation against `CORS_ORIGIN` with credentials enabled.
+   - **Known Operational Considerations:**
+     - Commercial SMS delivery in India requires TRAI DLT registration (MSG91/Twilio/Fast2SMS) deferred until mobile app pilot; local development uses console simulator.
+     - Admin Web Panel and Backend API must be hosted on the same root site (e.g., `admin.fuelpoint.com` and `api.fuelpoint.com`) to satisfy browser `SameSite=Strict` cookie requirements for silent refresh.
+
+### Quality Gate Results
+
+| Workspace | Command | Result / Real Output |
+|---|---|---|
+| `backend` | `npm run typecheck` | **PASS** — `tsc --noEmit` exited code 0 (0 errors) |
+| `backend` | `npm run lint` | **PASS** — `eslint .` exited code 0 (0 errors, 0 warnings) |
+| `backend` | `npm test` | **PASS** — 12 test files passed, 224 tests passed in 77.92s |
+| `backend` | `npx vitest run src/tests/e2e.test.ts` | **PASS** — 1 test file passed, 13 tests passed in 1.29s |
+| `frontend` | `npm run typecheck` | **PASS** — `tsc --noEmit` exited code 0 (0 errors) |
+| `frontend` | `npm run lint` | **PASS** — `eslint .` exited code 0 (0 errors, 7 Fast Refresh warnings) |
+
+### Deviations
+
+None.
+
+---

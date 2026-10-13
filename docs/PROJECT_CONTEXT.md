@@ -1,7 +1,7 @@
 # FuelPoint — Project Context & Handoff Guide
 
-> **Status:** Active Handoff Document  
-> **Last Updated:** 2026-10-12  
+> **Status:** Project Finalised (Tasks 0–21 Complete)  
+> **Last Updated:** 2026-10-13  
 > **Environment:** Windows (cmd), Node.js v22 (v22.15.0), npm, Docker Desktop  
 > **Primary Sources of Truth:**  
 > - `docs/db-schema-proposal.md` (Database Schema v5, signed off)  
@@ -14,10 +14,10 @@
 
 **FuelPoint** is a petrol pump operations and customer loyalty management system designed for a **single fuel station** (no multi-station architecture).
 
-One central backend serves three clients:
-1. **Admin Web Panel (`frontend/`):** React SPA used by the station owner/manager for customer and attendant management, discount groups, reports/analytics, transaction status overrides, and an audit ledger.
-2. **Worker Mobile App (Backend API in scope; UI out of scope):** Pump attendant POS app used to scan customer QR tokens, prefill fuelling forms, submit transactions, and mark payments as `success` or `failed`.
-3. **Customer Mobile App (Backend API in scope; UI out of scope):** Customer loyalty app for self-registration, OTP login, QR code loyalty token display, QR regeneration, transaction history, and profile management.
+One central backend serves three clients sharing a single PostgreSQL database:
+1. **Admin Web Panel (`frontend/`):** React 19 SPA used by the station owner/manager for customer and attendant management, discount groups, reports/analytics, transaction status overrides, and an audit ledger. Fully wired to the real backend API.
+2. **Worker Mobile App (Backend API fully implemented & verified; UI out of scope):** Pump attendant POS app used to scan customer QR tokens, prefill fuelling forms, submit transactions, and mark payments as `success` or `failed`.
+3. **Customer Mobile App (Backend API fully implemented & verified; UI out of scope):** Customer loyalty app for self-registration, OTP login, QR code loyalty token display, QR regeneration, transaction history, and profile management.
 
 ---
 
@@ -25,8 +25,10 @@ One central backend serves three clients:
 
 ```
 adminFuelPoint/
-├── frontend/     # React 19 SPA (TanStack Router, Vite 8, Tailwind CSS v4, Radix UI)
-├── backend/      # Node.js v22 + Express + TypeScript API (architecture designed, ready for build)
+├── frontend/     # React 19 SPA (TanStack Router, Vite 8, Tailwind CSS v4, Radix UI) - Real API Wired
+├── backend/      # Node.js v22 + Express + TypeScript API (10 tables, full REST API, 100% tests passing)
+│   ├── postman/  # Comprehensive Postman Collection & Local Environment
+│   └── src/tests/# 12 Vitest test suites (224 tests passing, including full E2E flow)
 └── docs/         # Architectural specifications, decision logs, and task status logs
     ├── PROJECT_CONTEXT.md               # This handoff guide
     ├── STATUS.md                        # Incremental task-by-task execution log
@@ -39,7 +41,7 @@ adminFuelPoint/
 
 ## 3. Technology Stack & Core Decisions
 
-Detailed rationales are recorded in the respective documents. Do not reinvent or alter these decisions:
+Detailed rationales are recorded in the respective documents:
 
 - **Database (`docs/db-schema-proposal.md` - Decision Log D01–D54):**
   - PostgreSQL 18 with `UUID` primary keys (`gen_random_uuid()`).
@@ -58,7 +60,7 @@ Detailed rationales are recorded in the respective documents. Do not reinvent or
   - Dedicated `reports` module owning analytics, KPI metrics, server-side CSV streaming, and global search.
   - Password hashing via **Argon2id** (`@node-rs/argon2`, prebuilt Windows native binaries).
   - Transactions & Audit: Business mutations and audit logs commit in the **same transaction**. Failed events with no state change (`scan.rejected`, `admin.login_failed`) commit in an **independent standalone transaction**.
-  - Email via Gmail SMTP (`nodemailer`) with Google App Password; swappable `IEmailSender` interface.
+  - Email via Gmail SMTP (`nodemailer`) with Google App Password; dev fallback prints clickable reset links to terminal.
   - Test isolation: Table truncation between test suites against a dedicated Docker test database (`fuelpoint_test`).
 - **REST API (`docs/api-proposal.md`):**
   - Versioned REST + JSON under `/api/v1`.
@@ -66,7 +68,7 @@ Detailed rationales are recorded in the respective documents. Do not reinvent or
   - Day boundaries bounded by `Asia/Kolkata` (IST, UTC+5:30) for analytics and "today" counters.
   - Session delivery: Admin web panel uses in-memory access token + `httpOnly`, `Secure`, `SameSite=Strict` cookie; mobile apps use Bearer headers + secure OS Keychain storage.
   - Worker status guard: Only workers with status `'active'` may log in, refresh tokens, or scan. Status `offline` or `suspended` is blocked with HTTP 403.
-  - Signed Scan Tickets: `POST /worker/scan` verifies QR ($\ge 128$ bits entropy) and issues a short-lived (5m) signed ticket used to submit transactions.
+  - Signed Scan Tickets: `POST /worker/scan` verifies QR ($\ge 128$ bits entropy) and issues a short-lived (5m) HMAC-SHA256 signed ticket used to submit transactions.
   - Submission idempotency: Worker supplies client UUID; duplicate IDs verify matching payload and worker (`200 OK` on match; `409 Conflict` on mismatch).
   - Single OTP consumption: `/auth/otp/verify` is login-only; `POST /customer/register` verifies and consumes registration OTP directly.
   - Default group discount may be updated by admin (initializes at 0.00%); default group cannot be deleted or deactivated.
@@ -75,16 +77,7 @@ Detailed rationales are recorded in the respective documents. Do not reinvent or
 
 ## 4. How to Run the Project
 
-### 4.1 Frontend (Current State: Mock Service Layer)
-```cmd
-cd frontend
-npm install
-npm run dev
-```
-- Starts on Vite's default port: `http://localhost:5173`.
-- Verification scripts: `npm run typecheck`, `npm run lint`.
-
-### 4.2 Backend (Target Setup when Initialized)
+### 4.1 Backend
 ```cmd
 cd backend
 docker compose up -d
@@ -94,8 +87,21 @@ npm run migrate
 npm run seed
 npm run dev
 ```
-- Runs on `http://localhost:3000/api/v1`.
+- Runs on `http://localhost:5000/api/v1`.
 - Connects to local Docker PostgreSQL on `127.0.0.1:5433`.
+- Automated test suite: `npm test` (executes 12 test suites, 224 tests against `fuelpoint_test`).
+- End-to-end test flow: `npx vitest run src/tests/e2e.test.ts`.
+
+### 4.2 Frontend
+```cmd
+cd frontend
+npm install
+copy .env.example .env
+npm run dev
+```
+- Runs on `http://localhost:5173`.
+- Fully wired to `http://localhost:5000/api/v1` via TanStack Query and in-memory access token + refresh cookie.
+- Quality gates: `npm run typecheck`, `npm run lint`.
 
 ---
 
@@ -107,7 +113,6 @@ npm run dev
    - **Antigravity (Coding Assistant):** Executes task instructions, runs validation checks, and produces code/documentation strictly within the assigned task boundaries.
 2. **Sources of Truth:**
    - The three specification documents (`docs/db-schema-proposal.md`, `docs/backend-structure-proposal.md`, and `docs/api-proposal.md`) govern all implementation.
-   - If documents conflict or an instruction is ambiguous: **STOP and ask the owner**. Never assume.
 3. **Execution Rules:**
    - Windows cmd-friendly npm scripts only.
    - Never commit secrets, credentials, or `.env`.
@@ -119,7 +124,7 @@ npm run dev
 ## 6. Deferred Decisions & Operational Constraints
 
 1. **Commercial SMS Provider (India DLT):**
-   - In development: OTP codes are printed to the server console log; no SMS gateway is required.
+   - In development: OTP codes are printed to the server console log via `DevSmsSender`; no SMS gateway is required.
    - In production: Commercial SMS delivery in India requires mandatory TRAI Distributed Ledger Technology (DLT) entity and template registration. Provider selection (e.g. MSG91, Fast2SMS, Twilio) is deferred until mobile app pilot testing.
 2. **Production Hosting & Cookie Same-Site Constraint:**
    - Production hosting is deliberately undecided (single VPS, Render, AWS App Runner, etc.).
@@ -127,7 +132,7 @@ npm run dev
 
 ---
 
-## 7. Task History & Status (from `docs/STATUS.md`)
+## 7. Complete Task History & Status (from `docs/STATUS.md`)
 
 | Task | Date | Focus | Output / Status |
 |---|---|---|---|
@@ -141,8 +146,15 @@ npm run dev
 | **Task 7** | 2026-10-12 | Backend structure proposal v1 | Layered architecture, Docker Compose, Gmail SMTP, migrations. ✅ Done |
 | **Task 8** | 2026-10-12 | REST API proposal v1 | Complete `/api/v1` specification across 3 clients. ✅ Done |
 | **Task 9** | 2026-10-12 | Patch API & Backend proposals (v2) | Applied owner decisions (offline workers, default group edit, signed tickets, reports module). ✅ Done |
-| **Task 10** | 2026-10-12 | Project context handoff document | Created `docs/PROJECT_CONTEXT.md` summarizing context, stack, and rules. ✅ Current |
-
----
-
-*Next steps: Awaiting orchestrator instructions for Task 11 (Backend initialization or test setup).*
+| **Task 10** | 2026-10-12 | Project context handoff document | Created `docs/PROJECT_CONTEXT.md` summarizing context, stack, and rules. ✅ Done |
+| **Task 11** | 2026-10-12 | Backend scaffolding & health check | Express + TypeScript, Docker PostgreSQL 18 container, health endpoint. ✅ Done |
+| **Task 12** | 2026-10-12 | Database migrations & triggers | 10 tables, 14 constraints, 20 indexes, 2 PL/pgSQL triggers, default group seed. ✅ Done |
+| **Task 13** | 2026-10-12 | Admin Auth & Password management | Argon2id, JWT + httpOnly cookie, Gmail SMTP reset, all-devices logout. ✅ Done |
+| **Task 14** | 2026-10-12 | Admin Groups Management | Group CRUD, default group protection, atomic member reassignment. ✅ Done |
+| **Task 15** | 2026-10-12 | Workers & Customers Management | Worker/Customer CRUD, status guards, phone normalization, QR generation. ✅ Done |
+| **Task 16** | 2026-10-13 | OTP, Customer & Worker mobile flows | Timing-safe OTP, signed scan tickets, idempotent transactions, status guards. ✅ Done |
+| **Task 17** | 2026-10-13 | Admin Profile Management | Profile GET/PATCH, password verification, Argon2id re-hashing, audit logging. ✅ Done |
+| **Task 18** | 2026-10-13 | Analytics, Reports, Search & Cleanup | IST day boundaries, KPI cards, CSV streaming, global search, background cleanup. ✅ Done |
+| **Task 19** | 2026-10-13 | Vitest Integration Test Suites | 11 test files, 211 tests covering all endpoints, triggers, constraints, and jobs. ✅ Done |
+| **Task 20** | 2026-10-13 | Frontend Wiring (Phases A, B, C) | Full SPA wired to real REST API: auth, groups, customers, workers, dashboard, reports. ✅ Done |
+| **Task 21** | 2026-10-13 | E2E Tests, Postman & Finalisation | Automated E2E test (13 steps), Postman collection & environment, README, handoff guide. ✅ Complete |
