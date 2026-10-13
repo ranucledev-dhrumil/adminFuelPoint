@@ -1131,7 +1131,130 @@ None.
 
 None.
 
+---
+
+## Task 19: Admin Analytics and Views (Dashboard, Reports Summary & CSV Stream, Search, Notifications, Audit Logs, Cleanup Job & Query Optimization)
+
+**Date:** 2026-10-13
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/common/utils/date.ts` | Modified — Added `getTodayIstBoundaries()` and `getIstDayBuckets(days, anchorDate)` for exact `Asia/Kolkata` (IST, UTC+5:30) date handling |
+| `backend/src/modules/audit/audit.repository.ts` | Modified — Added `findAuditLogs()` with action, actor, entity, reason, and date range filters with total count window |
+| `backend/src/modules/audit/audit.service.ts` | Modified — Added `listAuditLogs()` with pagination metadata and ISO timestamps |
+| `backend/src/modules/audit/audit.controller.ts` | Created — HTTP handler for `GET /api/v1/admin/audit-logs` |
+| `backend/src/modules/audit/audit.routes.ts` | Created — Router with Zod validation schema for audit logs filtering |
+| `backend/src/modules/notifications/notification.repository.ts` | Modified — Added `create()`, `findNotifications()`, `countUnread()`, `markAsRead()`, `markAllAsRead()` |
+| `backend/src/modules/notifications/notification.service.ts` | Modified — Added `listNotifications()`, `markAsRead()`, `markAllAsRead()`, `notifyWorkerFirstLogin()`, `notifyCustomerRegistered()` |
+| `backend/src/modules/notifications/notification.controller.ts` | Created — HTTP controller handlers for listing, marking single read, and marking all read |
+| `backend/src/modules/notifications/notification.routes.ts` | Created — Router with Zod validation schemas for notification endpoints |
+| `backend/src/modules/reports/reports.repository.ts` | Created — Repository for overview metrics, daily transaction & registration aggs, worker activity rankings, optimized group distribution, search, report metrics summaries, and chunked CSV export queries |
+| `backend/src/modules/reports/reports.service.ts` | Created — Domain service handling 13 KPI metrics, date series bucketing, chunked CSV stream generation, reports summary metrics, and global search |
+| `backend/src/modules/reports/reports.controller.ts` | Created — HTTP controller for dashboard, series, worker activity, group distribution, report summary, export, and search |
+| `backend/src/modules/reports/reports.routes.ts` | Created — Express routers `dashboardRouter` and `reportsRouter` with Zod validation |
+| `backend/src/modules/admin-users/admin.routes.ts` | Modified — Mounted `/dashboard`, `/reports`, `/notifications`, `/audit-logs`, and `GET /search` |
+| `backend/src/jobs/cleanup-expired.job.ts` | Created — Prunes expired/consumed OTP codes, expired/revoked refresh tokens, and expired/used password reset tokens; explicitly preserves all notifications |
+| `backend/src/jobs/scheduler.ts` | Created — Cron-like in-process background job scheduler with unref timers |
+| `backend/package.json` | Modified — Added `"job:cleanup": "tsx src/jobs/cleanup-expired.job.ts"` script |
+| `backend/src/tests/analytics.test.ts` | Created — 32 integration tests covering dashboard overview, series (7/30/90 days), worker activity, group distribution, report summary across all 5 categories, CSV export stream headers/rows, global search, notifications (unreadCount, single read, mark all read), audit logs filtering, and cleanup job |
+| `docs/STATUS.md` | Appended Task 19 completion record |
+
+### What was implemented
+
+1. **Dashboard Analytics Endpoints:**
+   - `GET /api/v1/admin/dashboard/overview`: Returns all 13 KPI fields. Money amounts formatted to 2 decimal places as strings. Bounded to `Asia/Kolkata` (IST) date boundaries for today's transactions and discounts.
+   - `GET /api/v1/admin/dashboard/series`: Takes `days` parameter (default 7, validated integer up to 90), returns array of daily buckets in IST containing transactions, discount, registrations, and revenue.
+   - `GET /api/v1/admin/dashboard/worker-activity`: Lists workers ranked by total scans and successful transactions.
+   - `GET /api/v1/admin/dashboard/group-distribution`: Group breakdown with default group first, followed by custom groups in alphabetical order. Returns customer count, successful transaction count, and discount generated per group.
+2. **Reports Summary & Streamed CSV Export:**
+   - `GET /api/v1/admin/reports/summary`: Summary metrics for `transactions`, `discount`, `customers`, `workers`, and `groups` categories with optional `from` and `to` date range boundaries.
+   - `GET /api/v1/admin/reports/export`: Chunked streaming CSV export setting `Content-Type: text/csv` and `Content-Disposition: attachment; filename="<category>-report.csv"`. Streams row-by-row with escaped CSV fields.
+3. **Global Search:**
+   - `GET /api/v1/admin/search`: Case-insensitive partial matching across customer (name, phone, email) and worker (name, phone, email) records.
+4. **Notifications Inbox Management:**
+   - `GET /api/v1/admin/notifications`: Paginated notifications list with total count and live `unreadCount`. Supports filter by `type` ('registration' \| 'worker') and `unreadOnly`.
+   - `PATCH /api/v1/admin/notifications/:id/read`: Marks individual notification as read (`is_read = true`, `read_at = now()`).
+   - `POST /api/v1/admin/notifications/mark-all-read`: Marks all unread notifications as read.
+5. **Audit Logs View:**
+   - `GET /api/v1/admin/audit-logs`: Search and filter audit entries by `action`, `actorType`, `actorId`, `entityType`, `entityId`, `reason`, and date range (`from`, `to`), with windowed total count pagination.
+6. **Background Cleanup Job (`src/jobs/cleanup-expired.job.ts` & `src/jobs/scheduler.ts`):**
+   - Automatically prunes expired and consumed OTP codes (`expires_at < now()` or consumed > 24 hours).
+   - Prunes expired and revoked refresh tokens (`expires_at < now()` or revoked > 30 days).
+   - Prunes expired and used password reset tokens (`expires_at < now()` or used > 24 hours).
+   - Explicitly ensures notifications table rows are never deleted.
+   - Available via CLI execution (`npm run job:cleanup`) and programmatic scheduler runner.
+
+### EXPLAIN Benchmark & Query Optimization Findings
+
+Executed `EXPLAIN (ANALYZE, BUFFERS)` against a generated realistic test dataset containing **1,500 customers**, **25 workers**, **10,000 transactions**, and **5,000 audit logs**:
+
+1. **Dashboard Overview Query:**
+   - **Indexes Used:** `idx_transactions_submitted_at`, `idx_customers_registered_at`, `idx_customers_group_status`, `idx_transactions_status_submitted`.
+   - **Execution Time:** ~14.4 ms.
+   - Subqueries run concurrent index scans for counts and IST date filters.
+2. **Daily Transactions Series Query:**
+   - **Plan:** HashAggregate with Sequential Scan on transactions bounded by submitted_at range and status filter.
+   - **Execution Time:** ~26.8 ms across 10,000 rows.
+3. **Worker Activity Query:**
+   - **Plan:** Hash Right Join of `transactions` onto `workers` with HashAggregate and QuickSort (`ORDER BY scans DESC, transactions DESC`).
+   - **Execution Time:** ~11.4 ms.
+4. **Group Distribution Query Optimization:**
+   - *Initial Issue:* A naive simultaneous join of `customers c ON c.group_id = g.id` and `transactions t ON t.group_id = g.id` produced a Cartesian product ($1,500 \times 9,400 = 14,100,000$ joined rows), taking over 34,000 ms (34 seconds) and 2+ million buffer hits.
+   - *Resolution:* Refactored `getGroupDistribution` in `reports.repository.ts` to aggregate customers and transactions in separate subqueries/CTEs before left-joining to `groups`:
+     ```sql
+     SELECT
+       g.id, g.name, g.discount_percent, g.active,
+       COALESCE(c.cust_count, 0) AS customers,
+       COALESCE(t.tx_count, 0) AS transactions,
+       COALESCE(t.discount_gen, 0) AS discount_generated
+     FROM groups g
+     LEFT JOIN (
+       SELECT group_id, COUNT(*) AS cust_count
+       FROM customers WHERE deleted_at IS NULL GROUP BY group_id
+     ) c ON c.group_id = g.id
+     LEFT JOIN (
+       SELECT group_id, COUNT(*) AS tx_count, SUM(discount_amount) AS discount_gen
+       FROM transactions WHERE status = 'success' GROUP BY group_id
+     ) t ON t.group_id = g.id
+     WHERE g.deleted_at IS NULL
+     ORDER BY g.is_default DESC, g.name ASC;
+     ```
+   - *Optimized Plan:* Hash Left Joins between groups and aggregated subquery scans.
+   - *Optimized Execution Time:* **6.55 ms** (down from 34,000 ms; 99.98% latency reduction), with shared buffer hits reduced to 233.
+5. **Audit Logs Filtered Query:**
+   - **Plan:** Bitmap Index Scan on `idx_audit_action_created` (`action = 'scan.rejected' AND created_at >= ...`), Bitmap Heap Scan, WindowAgg for total count, Top-N heapsort.
+   - **Execution Time:** **1.86 ms**.
+6. **Global Search Customers Query:**
+   - **Plan:** Sequential Scan with ILIKE filters across name, phone, email and Top-N heapsort.
+   - **Execution Time:** **6.89 ms**.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm test"`: Exited code 0 (11 test files passed, 211 tests passed in 52.81s).
+  - `src/tests/analytics.test.ts` (32 tests passed)
+  - `src/tests/transactions.test.ts` (31 tests passed)
+  - `src/tests/workers.test.ts` (23 tests passed)
+  - `src/tests/customers.test.ts` (22 tests passed)
+  - `src/tests/groups.test.ts` (21 tests passed)
+  - `src/tests/otp.test.ts` (24 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+  - `src/tests/auth.service.test.ts` (14 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors, 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
 **Next: awaiting orchestrator instructions.**
+
 
 
 

@@ -7,6 +7,11 @@ import { groupRouter } from "../groups/group.routes.js";
 import { customerRouter } from "../customers/customer.routes.js";
 import { workerRouter } from "../workers/worker.routes.js";
 import { adminTransactionRouter } from "../transactions/admin-transaction.routes.js";
+import { dashboardRouter, reportsRouter, searchQuerySchema } from "../reports/reports.routes.js";
+import { reportsController } from "../reports/reports.controller.js";
+import { notificationRouter } from "../notifications/notification.routes.js";
+import { auditRouter } from "../audit/audit.routes.js";
+import { validateRequest } from "../../common/middleware/validate.js";
 
 const router = Router();
 
@@ -35,5 +40,15 @@ router.use("/groups", groupRouter);
 router.use("/customers", customerRouter);
 router.use("/workers", workerRouter);
 router.use("/transactions", adminTransactionRouter);
+router.use("/dashboard", dashboardRouter);
+router.use("/reports", reportsRouter);
+router.use("/notifications", notificationRouter);
+router.use("/audit-logs", auditRouter);
+
+router.get(
+  "/search",
+  validateRequest({ query: searchQuerySchema }),
+  reportsController.globalSearch,
+);
 
 export const adminRouter = router;

@@ -15,7 +15,7 @@
     "migrate": "tsx src/db/migrate.ts up",
     "migrate:down": "tsx src/db/migrate.ts down 1",
     "seed": "tsx src/seeds/seed.ts",
-    "job:cleanup": "node -e \"console.log('not implemented yet')\""
+    "job:cleanup": "tsx src/jobs/cleanup-expired.job.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
