@@ -39,7 +39,7 @@ export const Route = createFileRoute("/")({
 function LoginPage() {
   const { login, authed, authReady } = useAdmin();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@fuelpoint.local");
+  const [email, setEmail] = useState("dhrumil.ranucle@gmail.com");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
