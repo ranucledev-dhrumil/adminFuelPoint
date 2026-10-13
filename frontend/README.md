@@ -4,17 +4,17 @@ Admin dashboard for a petrol-pump customer-discount system. It is a **pure clien
 
 ## Stack
 
-| Area | Choice |
-|---|---|
-| Language / UI | TypeScript, React 19 |
-| Build tool | Vite 8 |
-| Routing | TanStack Router (file-based routes in `src/routes`, code-split per route) |
-| Data fetching | TanStack Query (client is created in `src/router.tsx`; not used for data yet) |
-| Styling | Tailwind CSS v4, shadcn/ui (Radix primitives) |
-| Forms / validation | react-hook-form, zod |
-| Charts | Recharts |
-| Notifications | sonner (toasts) |
-| Tooling | ESLint, Prettier (100 columns), npm |
+| Area               | Choice                                                                        |
+| ------------------ | ----------------------------------------------------------------------------- |
+| Language / UI      | TypeScript, React 19                                                          |
+| Build tool         | Vite 8                                                                        |
+| Routing            | TanStack Router (file-based routes in `src/routes`, code-split per route)     |
+| Data fetching      | TanStack Query (client is created in `src/router.tsx`; not used for data yet) |
+| Styling            | Tailwind CSS v4, shadcn/ui (Radix primitives)                                 |
+| Forms / validation | react-hook-form, zod                                                          |
+| Charts             | Recharts                                                                      |
+| Notifications      | sonner (toasts)                                                               |
+| Tooling            | ESLint, Prettier (100 columns), npm                                           |
 
 ## Getting started
 
@@ -25,14 +25,14 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-| Script | What it does |
-|---|---|
-| `npm run dev` | Vite dev server |
-| `npm run build` | Production build into `dist/` |
-| `npm run preview` | Serve the production build locally |
-| `npm run typecheck` | `tsc --noEmit` (see Known issues) |
-| `npm run lint` | ESLint |
-| `npm run format` | Prettier |
+| Script              | What it does                       |
+| ------------------- | ---------------------------------- |
+| `npm run dev`       | Vite dev server                    |
+| `npm run build`     | Production build into `dist/`      |
+| `npm run preview`   | Serve the production build locally |
+| `npm run typecheck` | `tsc --noEmit` (see Known issues)  |
+| `npm run lint`      | ESLint                             |
+| `npm run format`    | Prettier                           |
 
 ## Project structure
 
@@ -66,17 +66,17 @@ frontend/
 
 ## Routes
 
-| Path | Page |
-|---|---|
-| `/` | Sign in |
-| `/dashboard` | Overview and charts |
-| `/workers` | Worker list / create / edit |
-| `/customers` | Customer list / create / edit, group assignment |
-| `/groups` | Discount groups |
-| `/reports` | Reports |
-| `/notifications` | Notifications |
-| `/profile` | Admin profile |
-| `/search?q=` | Global search |
+| Path             | Page                                            |
+| ---------------- | ----------------------------------------------- |
+| `/`              | Sign in                                         |
+| `/dashboard`     | Overview and charts                             |
+| `/workers`       | Worker list / create / edit                     |
+| `/customers`     | Customer list / create / edit, group assignment |
+| `/groups`        | Discount groups                                 |
+| `/reports`       | Reports                                         |
+| `/notifications` | Notifications                                   |
+| `/profile`       | Admin profile                                   |
+| `/search?q=`     | Global search                                   |
 
 Everything except `/` sits under the `_admin` layout, which redirects to `/` when not signed in.
 

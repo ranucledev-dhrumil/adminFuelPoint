@@ -9,10 +9,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground rounded-[20px] shadow hover:bg-primary/90 font-bold",
-        destructive: "bg-destructive text-destructive-foreground rounded-[20px] shadow-sm hover:bg-destructive/90",
-        outline: "border border-border bg-transparent rounded-[8px] text-foreground shadow-sm hover:bg-secondary",
-        secondary: "bg-transparent border border-border rounded-[4px] text-foreground shadow-sm hover:bg-secondary",
+        default:
+          "bg-primary text-primary-foreground rounded-[20px] shadow hover:bg-primary/90 font-bold",
+        destructive:
+          "bg-destructive text-destructive-foreground rounded-[20px] shadow-sm hover:bg-destructive/90",
+        outline:
+          "border border-border bg-transparent rounded-[8px] text-foreground shadow-sm hover:bg-secondary",
+        secondary:
+          "bg-transparent border border-border rounded-[4px] text-foreground shadow-sm hover:bg-secondary",
         ghost: "hover:bg-secondary hover:text-primary rounded-[8px]",
         link: "text-foreground underline-offset-4 hover:underline rounded-none p-0",
       },
@@ -21,7 +25,7 @@ const buttonVariants = cva(
         sm: "h-8 rounded-[4px] px-3 text-xs",
         lg: "h-10 rounded-[20px] px-8",
         icon: "h-9 w-9 rounded-[8px]",
-        nayara: "h-[68px] w-[232px] px-[34px] py-[23px] text-[21px] rounded-[20px]"
+        nayara: "h-[68px] w-[232px] px-[34px] py-[23px] text-[21px] rounded-[20px]",
       },
     },
     defaultVariants: {

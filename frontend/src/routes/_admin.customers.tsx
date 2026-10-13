@@ -1,6 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fuel, Search, UserPlus, Users, UserCheck, Pencil, Trash2, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Download,
+  Fuel,
+  Loader2,
+  Pencil,
+  Plus,
+  Power,
+  Search,
+  Trash2,
+  UserCheck,
+  UserPlus,
+  Users,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Column, DataTable } from "@/components/admin/DataTable";
 import { GroupPill, PageHeader, Panel, StatCard, StatusBadge } from "@/components/admin/primitives";
@@ -31,18 +44,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAdmin } from "@/lib/admin-store";
 import {
   DEFAULT_GROUP_ID,
-  buildOverview,
+  customersApi,
   exportCsv,
   formatCurrency,
   formatDate,
   formatDateTime,
   formatNumber,
+  formatPhone,
+  groupsApi,
   relativeDays,
+  reportsApi,
 } from "@/services/adminService";
-import type { Customer } from "@/services/types";
+import type { Customer, CustomerQueryParams } from "@/services/types";
 
 export const Route = createFileRoute("/_admin/customers")({
   head: () => ({
@@ -63,41 +78,257 @@ export const Route = createFileRoute("/_admin/customers")({
   component: CustomersPage,
 });
 
+interface CustomerFormData {
+  id?: string;
+  name: string;
+  phone: string;
+  email: string;
+  vehicle: string;
+  groupId: string;
+  status?: "active" | "inactive";
+}
+
+const blankCustomer: CustomerFormData = {
+  name: "",
+  phone: "",
+  email: "",
+  vehicle: "",
+  groupId: DEFAULT_GROUP_ID,
+  status: "active",
+};
+
 function CustomersPage() {
-  const { customers, groups, transactions, workers, assignCustomerGroup, saveCustomer, deleteCustomer } = useAdmin();
-  const [query, setQuery] = useState("");
+  const queryClient = useQueryClient();
+
+  // Query and table state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [sortBy, setSortBy] = useState<NonNullable<CustomerQueryParams["sort_by"]>>("registeredAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Dialog states
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [editingCustomer, setEditingCustomer] = useState<CustomerFormData | null>(null);
   const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
 
-  const overview = useMemo(
-    () => buildOverview(customers, workers, groups, transactions),
-    [customers, workers, groups, transactions],
-  );
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Reset page when filters change
+  const handleGroupFilterChange = (val: string) => {
+    setGroupFilter(val);
+    setPage(1);
+  };
+
+  const handleStatusFilterChange = (val: "all" | "active" | "inactive") => {
+    setStatusFilter(val);
+    setPage(1);
+  };
+
+  // Queries
+  const { data: overview } = useQuery({
+    queryKey: ["admin", "dashboard", "overview"],
+    queryFn: reportsApi.getOverview,
+  });
+
+  const { data: groups = [] } = useQuery({
+    queryKey: ["admin", "groups"],
+    queryFn: groupsApi.list,
+  });
+
+  const {
+    data: customerData,
+    isLoading: isCustomersLoading,
+    isFetching: isCustomersFetching,
+  } = useQuery({
+    queryKey: [
+      "admin",
+      "customers",
+      {
+        page,
+        limit: pageSize,
+        q: debouncedSearch,
+        status: statusFilter,
+        group_id: groupFilter,
+        sort_by: sortBy,
+        order: sortOrder,
+      },
+    ],
+    queryFn: () =>
+      customersApi.list({
+        page,
+        limit: pageSize,
+        q: debouncedSearch || undefined,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        group_id: groupFilter === "all" ? undefined : groupFilter,
+        sort_by: sortBy,
+        order: sortOrder,
+      }),
+  });
+
+  // Customer Detail Query
+  const { data: customerDetail, isLoading: isDetailLoading } = useQuery({
+    queryKey: ["admin", "customer", selectedId],
+    queryFn: () => customersApi.getById(selectedId!),
+    enabled: Boolean(selectedId),
+  });
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: customersApi.create,
+    onSuccess: (cust) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard", "overview"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      toast.success("Customer created", { description: cust.name });
+      setEditingCustomer(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to create customer", { description: err.message });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: CustomerFormData) => {
+      if (!data.id) return;
+      await customersApi.update(data.id, {
+        name: data.name,
+        phone: data.phone,
+        email: data.email || null,
+        vehicle: data.vehicle || null,
+      });
+
+      if (data.groupId) {
+        await customersApi.assignGroup(data.id, data.groupId);
+      }
+
+      if (data.status) {
+        await customersApi.updateStatus(data.id, data.status);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      if (selectedId) {
+        queryClient.invalidateQueries({ queryKey: ["admin", "customer", selectedId] });
+      }
+      toast.success("Customer updated");
+      setEditingCustomer(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to update customer", { description: err.message });
+    },
+  });
+
+  const statusToggleMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "active" | "inactive" }) =>
+      customersApi.updateStatus(id, status),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard", "overview"] });
+      if (selectedId === updated.id) {
+        queryClient.invalidateQueries({ queryKey: ["admin", "customer", selectedId] });
+      }
+      toast.success(updated.status === "active" ? "Customer activated" : "Customer deactivated", {
+        description: updated.name,
+      });
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to update status", { description: err.message });
+    },
+  });
+
+  const assignGroupMutation = useMutation({
+    mutationFn: ({ id, groupId }: { id: string; groupId: string }) =>
+      customersApi.assignGroup(id, groupId),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      if (selectedId === updated.id) {
+        queryClient.invalidateQueries({ queryKey: ["admin", "customer", selectedId] });
+      }
+      toast.success("Group assigned", { description: updated.name });
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to assign group", { description: err.message });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => customersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard", "overview"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      toast.success("Customer deleted");
+      setDeletingCustomer(null);
+      if (selectedId === deletingCustomer?.id) {
+        setSelectedId(null);
+      }
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to delete customer", { description: err.message });
+    },
+  });
+
+  const handleFormSubmit = () => {
+    if (!editingCustomer) return;
+    if (!editingCustomer.name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    const cleanPhone = editingCustomer.phone.replace(/\D/g, "");
+    if (cleanPhone.length < 10) {
+      toast.error("Valid 10-digit mobile number is required.");
+      return;
+    }
+
+    if (editingCustomer.id) {
+      updateMutation.mutate(editingCustomer);
+    } else {
+      createMutation.mutate({
+        name: editingCustomer.name,
+        phone: editingCustomer.phone,
+        email: editingCustomer.email || null,
+        vehicle: editingCustomer.vehicle || null,
+        groupId: editingCustomer.groupId,
+      });
+    }
+  };
+
   const groupName = (id: string) => groups.find((g) => g.id === id)?.name ?? "Unassigned";
   const groupPercent = (id: string) => groups.find((g) => g.id === id)?.discountPercent ?? 0;
 
-  const filtered = useMemo(
-    () =>
-      customers.filter(
-        (c) =>
-          (groupFilter === "all" || c.groupId === groupFilter) &&
-          (statusFilter === "all" || c.status === statusFilter) &&
-          (c.name.toLowerCase().includes(query.toLowerCase()) ||
-            c.phone.includes(query) ||
-            c.id.toLowerCase().includes(query.toLowerCase())),
-      ),
-    [customers, query, groupFilter, statusFilter],
-  );
+  // Sorting handler
+  const handleSortChange = (key: string, dir: "asc" | "desc") => {
+    const validSortKeys: Record<string, NonNullable<CustomerQueryParams["sort_by"]>> = {
+      name: "name",
+      registered: "registeredAt",
+      registeredAt: "registeredAt",
+      status: "status",
+      txns: "transactions",
+      transactions: "transactions",
+      discount: "discountReceived",
+      discountReceived: "discountReceived",
+      totalSpend: "totalSpend",
+      last: "lastActivity",
+      lastActivity: "lastActivity",
+    };
 
-  const selected = customers.find((c) => c.id === selectedId) ?? null;
-  const selectedTxns = selected
-    ? transactions.filter((t) => t.customerId === selected.id).slice(0, 8)
-    : [];
+    const targetKey = validSortKeys[key] || "registeredAt";
+    setSortBy(targetKey);
+    setSortOrder(dir);
+  };
 
   const columns: Column<Customer>[] = [
     {
@@ -108,7 +339,7 @@ function CustomersPage() {
         <div>
           <p className="font-medium text-foreground">{c.name}</p>
           <p className="text-xs text-muted-foreground">
-            {c.phone} · {c.id}
+            {formatPhone(c.phone)} {c.vehicle ? `· ${c.vehicle}` : ""}
           </p>
         </div>
       ),
@@ -116,14 +347,13 @@ function CustomersPage() {
     {
       key: "group",
       header: "Group",
-      sortValue: (c) => groupName(c.groupId),
       render: (c) =>
         c.groupId === DEFAULT_GROUP_ID ? (
           <span className="inline-flex items-center rounded-full bg-warning/18 px-2.5 py-1 text-xs font-semibold text-warning">
             Unassigned
           </span>
         ) : (
-          <GroupPill name={groupName(c.groupId)} percent={groupPercent(c.groupId)} />
+          <GroupPill name={c.groupName || groupName(c.groupId)} percent={groupPercent(c.groupId)} />
         ),
     },
     {
@@ -132,7 +362,12 @@ function CustomersPage() {
       sortValue: (c) => c.registeredAt,
       render: (c) => <span className="text-sm">{formatDate(c.registeredAt)}</span>,
     },
-    { key: "status", header: "Status", sortValue: (c) => c.status, render: (c) => <StatusBadge status={c.status} /> },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (c) => c.status,
+      render: (c) => <StatusBadge status={c.status} />,
+    },
     {
       key: "txns",
       header: "Transactions",
@@ -145,14 +380,18 @@ function CustomersPage() {
       header: "Discount received",
       align: "right",
       sortValue: (c) => c.discountReceived,
-      render: (c) => <span className="font-medium text-teal">{formatCurrency(c.discountReceived)}</span>,
+      render: (c) => (
+        <span className="font-medium text-teal">{formatCurrency(c.discountReceived)}</span>
+      ),
     },
     {
       key: "last",
       header: "Last activity",
       align: "right",
       sortValue: (c) => c.lastActivity ?? "",
-      render: (c) => <span className="text-xs text-muted-foreground">{relativeDays(c.lastActivity)}</span>,
+      render: (c) => (
+        <span className="text-xs text-muted-foreground">{relativeDays(c.lastActivity)}</span>
+      ),
     },
     {
       key: "actions",
@@ -164,7 +403,32 @@ function CustomersPage() {
             variant="ghost"
             size="icon"
             className="size-8"
-            onClick={() => setEditingCustomer(c)}
+            title={c.status === "active" ? "Deactivate customer" : "Activate customer"}
+            onClick={() =>
+              statusToggleMutation.mutate({
+                id: c.id,
+                status: c.status === "active" ? "inactive" : "active",
+              })
+            }
+          >
+            <Power className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            title="Edit customer"
+            onClick={() =>
+              setEditingCustomer({
+                id: c.id,
+                name: c.name,
+                phone: c.phone,
+                email: c.email || "",
+                vehicle: c.vehicle || "",
+                groupId: c.groupId,
+                status: c.status,
+              })
+            }
           >
             <Pencil className="size-4" />
           </Button>
@@ -172,6 +436,7 @@ function CustomersPage() {
             variant="ghost"
             size="icon"
             className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            title="Delete customer"
             onClick={() => setDeletingCustomer(c)}
           >
             <Trash2 className="size-4" />
@@ -181,135 +446,149 @@ function CustomersPage() {
     },
   ];
 
+  const handleExportCsv = () => {
+    const rows = (customerData?.data ?? []).map((c) => ({
+      ID: c.id,
+      Name: c.name,
+      Phone: c.phone,
+      Email: c.email || "",
+      Vehicle: c.vehicle || "",
+      Group: c.groupName || groupName(c.groupId),
+      Status: c.status,
+      Registered: c.registeredAt,
+      Transactions: c.transactions,
+      "Total Spend": c.totalSpend,
+      "Discount Received": c.discountReceived,
+      "Last Activity": c.lastActivity || "",
+    }));
+    exportCsv(`customers-page-${page}.csv`, rows);
+  };
+
+  const selectedCustomer = customerDetail?.customer;
+  const recentTransactions = customerDetail?.recentTransactions ?? [];
+
   return (
     <>
       <PageHeader
         title="Customers"
-        subtitle="Registrations, group assignment and fuelling history."
+        subtitle="Search customers, assign discount groups and review fuelling activity."
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() =>
-                exportCsv(
-                  "customers.csv",
-                  filtered.map((c) => ({
-                    ID: c.id,
-                    Name: c.name,
-                    Phone: c.phone,
-                    Group: groupName(c.groupId),
-                    Registered: formatDate(c.registeredAt),
-                    Transactions: c.transactions,
-                    Discount: c.discountReceived,
-                    Status: c.status,
-                  })),
-                )
-              }
-            >
-              Export CSV
+            <Button variant="outline" onClick={handleExportCsv}>
+              <Download className="size-4" /> Export
             </Button>
-            <Button
-              onClick={() => setEditingCustomer({
-                id: "",
-                name: "",
-                phone: "",
-                email: "",
-                vehicle: "",
-                groupId: DEFAULT_GROUP_ID,
-                status: "active",
-                registeredAt: new Date().toISOString(),
-                lastActivity: null,
-                transactions: 0,
-                totalSpend: 0,
-                discountReceived: 0,
-                password: "",
-              })}
-            >
-              <Plus className="size-4" /> New Customer
+            <Button onClick={() => setEditingCustomer({ ...blankCustomer })}>
+              <Plus className="size-4" /> New customer
             </Button>
           </div>
         }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total customers" value={formatNumber(overview.totalCustomers)} icon={Users} />
         <StatCard
-          label="New registrations"
-          value={formatNumber(overview.newRegistrations7d)}
-          icon={UserPlus}
-          tone="warning"
-          hint="last 7 days"
+          label="Total customers"
+          value={formatNumber(overview?.totalCustomers ?? 0)}
+          icon={Users}
         />
         <StatCard
           label="Active customers"
-          value={formatNumber(overview.activeCustomers)}
+          value={formatNumber(overview?.activeCustomers ?? 0)}
           icon={UserCheck}
           tone="teal"
         />
         <StatCard
-          label="Used the pump"
-          value={formatNumber(overview.usedPumpCustomers)}
+          label="Unassigned"
+          value={formatNumber(overview?.unassignedCustomers ?? 0)}
+          icon={UserPlus}
+          tone="warning"
+        />
+        <StatCard
+          label="Total discount given"
+          value={formatCurrency(overview?.totalDiscount ?? 0)}
           icon={Fuel}
-          tone="navy"
-          hint={`${overview.unassignedCustomers} awaiting group`}
+          tone="teal"
         />
       </div>
 
-      <Panel
-        title="Customer directory"
-        description="Click a row to open the customer profile and activity"
-        className="mt-6"
-      >
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="flex min-w-56 flex-1 items-center gap-2 rounded-lg border border-border px-3 py-2">
-            <Search className="size-4 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, phone or customer ID"
-              className="w-full bg-transparent text-sm outline-none"
+      <Panel className="mt-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+          <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, phone, email…"
+              className="pl-9"
             />
           </div>
-          <Select value={groupFilter} onValueChange={setGroupFilter}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All groups</SelectItem>
-              {groups.map((g) => (
-                <SelectItem key={g.id} value={g.id}>
-                  {g.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={groupFilter} onValueChange={handleGroupFilterChange}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="All groups" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All groups</SelectItem>
+                {groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <DataTable
-          rows={filtered}
+          rows={customerData?.data ?? []}
           columns={columns}
-          pageSize={10}
+          pageSize={pageSize}
+          isLoading={isCustomersLoading || isCustomersFetching}
+          serverPagination={{
+            currentPage: customerData?.pagination.page ?? page,
+            totalPages: customerData?.pagination.totalPages ?? 1,
+            totalItems: customerData?.pagination.total ?? 0,
+            pageSize,
+            onPageChange: (p) => setPage(p),
+            onPageSizeChange: (s) => {
+              setPageSize(s);
+              setPage(1);
+            },
+            sortKey: sortBy,
+            sortDir: sortOrder,
+            onSortChange: handleSortChange,
+          }}
           onRowClick={(c) => setSelectedId(c.id)}
         />
       </Panel>
 
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
+      {/* Customer Detail Dialog */}
+      <Dialog open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
         <DialogContent className="sm:max-w-xl">
-          {selected && (
+          {isDetailLoading && (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          )}
+          {!isDetailLoading && selectedCustomer && (
             <>
               <DialogHeader>
                 <div className="flex items-start justify-between pr-6">
                   <div>
-                    <DialogTitle>{selected.name}</DialogTitle>
+                    <DialogTitle>{selectedCustomer.name}</DialogTitle>
                     <DialogDescription>
-                      {selected.email} · {selected.id} · {selected.phone} · {selected.vehicle}
+                      {formatPhone(selectedCustomer.phone)}
+                      {selectedCustomer.email ? ` · ${selectedCustomer.email}` : ""}
+                      {selectedCustomer.vehicle ? ` · ${selectedCustomer.vehicle}` : ""}
                     </DialogDescription>
                   </div>
                   <div className="flex items-center gap-1">
@@ -319,7 +598,15 @@ function CustomersPage() {
                       className="size-8"
                       title="Edit customer"
                       onClick={() => {
-                        setEditingCustomer(selected);
+                        setEditingCustomer({
+                          id: selectedCustomer.id,
+                          name: selectedCustomer.name,
+                          phone: selectedCustomer.phone,
+                          email: selectedCustomer.email || "",
+                          vehicle: selectedCustomer.vehicle || "",
+                          groupId: selectedCustomer.groupId,
+                          status: selectedCustomer.status,
+                        });
                         setSelectedId(null);
                       }}
                     >
@@ -331,7 +618,7 @@ function CustomersPage() {
                       className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
                       title="Delete customer"
                       onClick={() => {
-                        setDeletingCustomer(selected);
+                        setDeletingCustomer(selectedCustomer);
                         setSelectedId(null);
                       }}
                     >
@@ -343,10 +630,10 @@ function CustomersPage() {
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-2">
                 {[
-                  ["Registered", formatDate(selected.registeredAt)],
-                  ["Transactions", formatNumber(selected.transactions)],
-                  ["Total spend", formatCurrency(selected.totalSpend)],
-                  ["Discount", formatCurrency(selected.discountReceived)],
+                  ["Registered", formatDate(selectedCustomer.registeredAt)],
+                  ["Transactions", formatNumber(selectedCustomer.transactions)],
+                  ["Total spend", formatCurrency(selectedCustomer.totalSpend)],
+                  ["Discount", formatCurrency(selectedCustomer.discountReceived)],
                 ].map(([l, v]) => (
                   <div key={l} className="rounded-lg border border-border bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground">{l}</p>
@@ -357,22 +644,24 @@ function CustomersPage() {
 
               <div className="rounded-lg border border-border p-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase">
-                  Discount group
+                  Discount group & Status
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-3">
                   <Select
-                    value={selected.groupId}
+                    value={selectedCustomer.groupId}
                     onValueChange={(v) => {
-                      assignCustomerGroup(selected.id, v);
-                      toast.success("Group updated", {
-                        description: `${selected.name} moved to ${groupName(v)}.`,
+                      assignGroupMutation.mutate({
+                        id: selectedCustomer.id,
+                        groupId: v,
                       });
                     }}
                   >
-                    <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-56">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {groups
-                        .filter((g) => g.active || g.id === selected.groupId)
+                        .filter((g) => g.active || g.id === selectedCustomer.groupId)
                         .map((g) => (
                           <SelectItem key={g.id} value={g.id}>
                             {g.name} — {g.discountPercent}%
@@ -380,7 +669,23 @@ function CustomersPage() {
                         ))}
                     </SelectContent>
                   </Select>
-                  <StatusBadge status={selected.status} />
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() =>
+                      statusToggleMutation.mutate({
+                        id: selectedCustomer.id,
+                        status: selectedCustomer.status === "active" ? "inactive" : "active",
+                      })
+                    }
+                  >
+                    <Power className="size-3.5" />
+                    {selectedCustomer.status === "active" ? "Deactivate" : "Activate"}
+                  </Button>
+
+                  <StatusBadge status={selectedCustomer.status} />
                 </div>
               </div>
 
@@ -389,12 +694,15 @@ function CustomersPage() {
                   Recent activity
                 </p>
                 <ul className="scrollbar-thin max-h-56 divide-y divide-border overflow-y-auto">
-                  {selectedTxns.map((t) => (
-                    <li key={t.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  {recentTransactions.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex items-center justify-between px-4 py-2.5 text-sm"
+                    >
                       <span>
-                        {t.fuel} · {t.litres} L
+                        {t.fuel || "Fuel"} {t.litres ? `· ${t.litres} L` : ""}
                         <span className="block text-xs text-muted-foreground">
-                          {formatDateTime(t.createdAt)} · {t.workerName}
+                          {formatDateTime(t.submittedAt)} {t.workerName ? `· ${t.workerName}` : ""}
                         </span>
                       </span>
                       <span className="text-right">
@@ -405,7 +713,7 @@ function CustomersPage() {
                       </span>
                     </li>
                   ))}
-                  {selectedTxns.length === 0 && (
+                  {recentTransactions.length === 0 && (
                     <li className="px-4 py-6 text-center text-sm text-muted-foreground">
                       This customer hasn't fuelled yet.
                     </li>
@@ -416,136 +724,135 @@ function CustomersPage() {
           )}
         </DialogContent>
       </Dialog>
-      {/* Edit Customer Dialog */}
-      <Dialog open={!!editingCustomer} onOpenChange={(o) => {
-        if (!o) {
-          setEditingCustomer(null);
-          setConfirmPassword("");
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
+
+      {/* Create / Edit Customer Dialog */}
+      <Dialog open={!!editingCustomer} onOpenChange={(o) => !o && setEditingCustomer(null)}>
+        <DialogContent className="sm:max-w-lg">
           {editingCustomer && (
             <>
               <DialogHeader>
-                <DialogTitle>{editingCustomer.id ? "Edit Customer" : "Create Customer"}</DialogTitle>
+                <DialogTitle>
+                  {editingCustomer.id ? "Edit Customer" : "Register New Customer"}
+                </DialogTitle>
                 <DialogDescription>
-                  Update contact details or manually override customer status.
+                  {editingCustomer.id
+                    ? "Update contact info, vehicle, and group assignment."
+                    : "Add customer details. They can immediately scan and receive group discounts."}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="c-name">Full name</Label>
-                    <Input
-                      id="c-name"
-                      placeholder="e.g. Anil Kumar"
-                      value={editingCustomer.name}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="c-phone">Phone number</Label>
-                    <Input
-                      id="c-phone"
-                      placeholder="e.g. 9876543210"
-                      value={editingCustomer.phone}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, phone: e.target.value })}
-                    />
-                  </div>
-                </div>
+
+              <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label htmlFor="c-email">Email</Label>
+                  <Label htmlFor="c-name">Full name *</Label>
                   <Input
-                    id="c-email"
-                    type="email"
-                    placeholder="e.g. anil@example.com"
-                    value={editingCustomer.email}
-                    onChange={(e) => setEditingCustomer({ ...editingCustomer, email: e.target.value })}
+                    id="c-name"
+                    value={editingCustomer.name}
+                    onChange={(e) =>
+                      setEditingCustomer({ ...editingCustomer, name: e.target.value })
+                    }
+                    placeholder="e.g. Rahul Sharma"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="c-password">{editingCustomer.id ? "New Password" : "Password"}</Label>
+                    <Label htmlFor="c-phone">Phone number *</Label>
                     <Input
-                      id="c-password"
-                      type="password"
-                      placeholder={editingCustomer.id ? "Leave blank to keep unchanged" : "Create password"}
-                      value={editingCustomer.password || ""}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, password: e.target.value })}
+                      id="c-phone"
+                      value={editingCustomer.phone}
+                      onChange={(e) =>
+                        setEditingCustomer({ ...editingCustomer, phone: e.target.value })
+                      }
+                      placeholder="9876543210"
                     />
+                    <p className="text-xs text-muted-foreground">10-digit Indian mobile number</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="c-confirm-password">Confirm Password</Label>
+                    <Label htmlFor="c-email">Email (optional)</Label>
                     <Input
-                      id="c-confirm-password"
-                      type="password"
-                      placeholder="Re-enter password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      id="c-email"
+                      type="email"
+                      value={editingCustomer.email}
+                      onChange={(e) =>
+                        setEditingCustomer({ ...editingCustomer, email: e.target.value })
+                      }
+                      placeholder="rahul@example.com"
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Group Assignment</Label>
+                    <Label htmlFor="c-vehicle">Vehicle number</Label>
+                    <Input
+                      id="c-vehicle"
+                      value={editingCustomer.vehicle}
+                      onChange={(e) =>
+                        setEditingCustomer({ ...editingCustomer, vehicle: e.target.value })
+                      }
+                      placeholder="MH12 AB 1234"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Discount Group</Label>
                     <Select
                       value={editingCustomer.groupId}
                       onValueChange={(v) => setEditingCustomer({ ...editingCustomer, groupId: v })}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
-                        {groups.filter(g => g.active || g.id === editingCustomer.groupId).map((g) => (
-                          <SelectItem key={g.id} value={g.id}>
-                            {g.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select
-                      value={editingCustomer.status}
-                      onValueChange={(v: "active" | "inactive" | "pending") => setEditingCustomer({ ...editingCustomer, status: v })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="inactive">Inactive</SelectItem>
+                        {groups
+                          .filter((g) => g.active || g.id === editingCustomer.groupId)
+                          .map((g) => (
+                            <SelectItem key={g.id} value={g.id}>
+                              {g.name} ({g.discountPercent}%)
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
+
+                {editingCustomer.id && (
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select
+                      value={editingCustomer.status || "active"}
+                      onValueChange={(v: "active" | "inactive") =>
+                        setEditingCustomer({ ...editingCustomer, status: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => {
-                  setEditingCustomer(null);
-                  setConfirmPassword("");
-                }}>
+
+              <div className="mt-4 flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setEditingCustomer(null)}>
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => {
-                    if (!editingCustomer.name.trim() || !editingCustomer.email.trim() || !editingCustomer.phone.trim()) {
-                      toast.error("Name, email, and phone are required.");
-                      return;
-                    }
-                    if (editingCustomer.password && editingCustomer.password !== confirmPassword) {
-                      toast.error("Passwords do not match.");
-                      return;
-                    }
-                    const customerToSave = { ...editingCustomer };
-                    if (!customerToSave.id) {
-                      customerToSave.id = `cus-${Date.now()}`;
-                    }
-                    saveCustomer(customerToSave);
-                    toast.success(editingCustomer.id ? "Customer updated" : "Customer created");
-                    setEditingCustomer(null);
-                    setConfirmPassword("");
-                  }}
+                  onClick={handleFormSubmit}
+                  disabled={createMutation.isPending || updateMutation.isPending}
                 >
-                  Save changes
+                  {createMutation.isPending || updateMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Saving…
+                    </>
+                  ) : editingCustomer.id ? (
+                    "Save changes"
+                  ) : (
+                    "Register customer"
+                  )}
                 </Button>
               </div>
             </>
@@ -553,31 +860,36 @@ function CustomersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Customer Alert */}
+      {/* Delete Confirmation Alert Dialog */}
       <AlertDialog open={!!deletingCustomer} onOpenChange={(o) => !o && setDeletingCustomer(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the customer account for{" "}
-              <span className="font-semibold text-foreground">{deletingCustomer?.name}</span>. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (deletingCustomer) {
-                  deleteCustomer(deletingCustomer.id);
-                  toast.success("Customer deleted");
-                  setDeletingCustomer(null);
-                }
-              }}
-            >
-              Delete customer
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          {deletingCustomer && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {deletingCustomer.name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will mark the customer as deleted. Their past transaction records will be
+                  preserved for auditing.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => deleteMutation.mutate(deletingCustomer.id)}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Deleting…
+                    </>
+                  ) : (
+                    "Delete customer"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
         </AlertDialogContent>
       </AlertDialog>
     </>

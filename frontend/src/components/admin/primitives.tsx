@@ -7,19 +7,22 @@ import { cn } from "@/lib/utils";
 export function PageHeader({
   title,
   subtitle,
+  description,
   actions,
 }: {
   title: string;
   subtitle?: string;
+  description?: string;
   actions?: ReactNode;
 }) {
+  const sub = subtitle ?? description;
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-[28px]">
           {title}
         </h1>
-        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+        {sub && <p className="mt-1 text-sm text-muted-foreground">{sub}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -54,7 +57,7 @@ export function StatCard({
     <div
       className={cn(
         "surface-card flex min-h-[136px] h-full flex-col justify-between p-5 transition-all duration-200 hover:shadow-elevated",
-        to && "cursor-pointer hover:border-primary/40 hover:bg-muted/30"
+        to && "cursor-pointer hover:border-primary/40 hover:bg-muted/30",
       )}
     >
       <div>
@@ -79,11 +82,11 @@ export function StatCard({
           {value}
         </p>
       </div>
-      
+
       <div
         className={cn(
           "mt-3 flex min-h-[28px] flex-wrap items-center gap-2 border-t pt-2 text-xs",
-          (delta !== undefined || hint) ? "border-border/40" : "border-transparent"
+          delta !== undefined || hint ? "border-border/40" : "border-transparent",
         )}
       >
         {(delta !== undefined || hint) && (
@@ -113,7 +116,7 @@ export function StatCard({
   if (to) {
     return (
       <Link
-        to={to as any}
+        to={to as "/"}
         className="block h-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-xl"
       >
         {content}
@@ -131,7 +134,7 @@ export function Panel({
   children,
   className,
 }: {
-  title: string;
+  title?: string;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
@@ -139,24 +142,28 @@ export function Panel({
 }) {
   return (
     <section className={cn("surface-card flex flex-col overflow-hidden", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-5 py-4">
-        <div>
-          <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
-            {title}
-          </h3>
-          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      {title && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-5 py-4">
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+              {title}
+            </h3>
+            {description && <p className="text-xs text-muted-foreground">{description}</p>}
+          </div>
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
-      </div>
-      <div className="flex-1 p-5">{children}</div>
+      )}
+      <div className={cn("flex-1", title && "p-5")}>{children}</div>
     </section>
   );
 }
 
 const statusTones: Record<string, string> = {
   active: "bg-success/12 text-success",
+  success: "bg-success/12 text-success",
   inactive: "bg-muted text-muted-foreground",
   pending: "bg-warning/18 text-warning",
+  failed: "bg-destructive/12 text-destructive",
   offline: "bg-muted text-muted-foreground",
   suspended: "bg-destructive/12 text-destructive",
 };

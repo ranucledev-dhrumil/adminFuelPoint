@@ -1,32 +1,16 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import {
-  Activity,
-  BadgePercent,
-  CalendarClock,
-  Tags,
-  TrendingUp,
-  UserPlus,
-  Users,
-  Wrench,
-} from "lucide-react";
-import { useMemo, useState } from "react";
-import {
-  DonutChart,
-  HorizontalBarChart,
-  TrendAreaChart,
-} from "@/components/admin/charts";
+import { BadgePercent, CalendarClock, Users, Wrench } from "lucide-react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { DonutChart, HorizontalBarChart, TrendAreaChart } from "@/components/admin/charts";
 import { PageHeader, Panel, StatCard } from "@/components/admin/primitives";
 import { Button } from "@/components/ui/button";
-import { useAdmin } from "@/lib/admin-store";
 import {
-  adminService,
-  buildOverview,
-  buildSeries,
+  dashboardApi,
   formatCurrency,
   formatDateTime,
   formatNumber,
-  groupDistribution,
-  workerActivity,
+  transactionsApi,
 } from "@/services/adminService";
 
 export const Route = createFileRoute("/_admin/dashboard")({
@@ -54,30 +38,63 @@ const ranges = [
 ] as const;
 
 function DashboardPage() {
-  const { customers, workers, groups, transactions } = useAdmin();
   const [days, setDays] = useState<number>(30);
 
-  const overview = useMemo(() => {
-    const cutoff = adminService.getToday().getTime() - days * 86400000;
-    const periodCustomers = customers.filter(c => new Date(c.registeredAt).getTime() >= cutoff);
-    const periodTransactions = transactions.filter(t => new Date(t.createdAt).getTime() >= cutoff);
-    return buildOverview(periodCustomers, workers, groups, periodTransactions);
-  }, [customers, workers, groups, transactions, days]);
-  const series = useMemo(
-    () => buildSeries(customers, transactions, days),
-    [customers, transactions, days],
-  );
-  const dist = useMemo(
-    () => groupDistribution(customers, groups, transactions).filter((g) => g.customers > 0),
-    [customers, groups, transactions],
-  );
-  const activity = useMemo(() => workerActivity(workers).slice(0, 8), [workers]);
-  const recent = transactions.slice(0, 8);
+  const overviewQuery = useQuery({
+    queryKey: ["dashboard", "overview"],
+    queryFn: () => dashboardApi.getOverview(),
+  });
+
+  const seriesQuery = useQuery({
+    queryKey: ["dashboard", "series", days],
+    queryFn: () => dashboardApi.getSeries(days),
+  });
+
+  const groupsQuery = useQuery({
+    queryKey: ["dashboard", "groups"],
+    queryFn: () => dashboardApi.getGroupDistribution(),
+  });
+
+  const workersQuery = useQuery({
+    queryKey: ["dashboard", "workers"],
+    queryFn: () => dashboardApi.getWorkerActivity(),
+  });
+
+  const recentQuery = useQuery({
+    queryKey: ["dashboard", "recent-transactions"],
+    queryFn: () => transactionsApi.list({ limit: 8, sort_by: "submitted_at", order: "desc" }),
+  });
+
+  const overview = overviewQuery.data ?? {
+    totalCustomers: 0,
+    totalWorkers: 0,
+    activeWorkers: 0,
+    totalGroups: 0,
+    totalTransactions: 0,
+    totalDiscount: 0,
+    totalRevenue: 0,
+    todayTransactions: 0,
+    todayDiscount: 0,
+    newRegistrations7d: 0,
+    activeCustomers: 0,
+    usedPumpCustomers: 0,
+    unassignedCustomers: 0,
+    avgDiscountPercent: 0,
+  };
+
+  const series = seriesQuery.data ?? [];
+  const dist = (groupsQuery.data ?? []).filter((g) => g.customers > 0);
+  const activity = (workersQuery.data ?? []).slice(0, 8).map((w) => ({
+    name: w.name.split(" ")[0] || w.name,
+    scans: w.scans,
+    transactions: w.transactions,
+  }));
+  const recent = recentQuery.data?.data ?? [];
 
   const half = Math.floor(series.length / 2);
   const delta = (key: "transactions" | "discount" | "registrations") => {
-    const first = series.slice(0, half).reduce((s, p) => s + p[key], 0);
-    const second = series.slice(half).reduce((s, p) => s + p[key], 0);
+    const first = series.slice(0, half).reduce((s, p) => s + Number(p[key] || 0), 0);
+    const second = series.slice(half).reduce((s, p) => s + Number(p[key] || 0), 0);
     if (!first) return 0;
     return ((second - first) / first) * 100;
   };
@@ -129,7 +146,7 @@ function DashboardPage() {
           icon={BadgePercent}
           tone="teal"
           delta={delta("discount")}
-          hint={`avg ${overview.avgDiscountPercent.toFixed(2)}% of sales`}
+          hint={`avg ${Number(overview.avgDiscountPercent).toFixed(2)}% of sales`}
           to="/reports"
         />
         <StatCard
@@ -150,12 +167,12 @@ function DashboardPage() {
           >
             <TrendAreaChart data={series} dataKey="transactions" height={280} />
           </Panel>
-          <Panel 
-            title="Group-wise customers" 
+          <Panel
+            title="Group-wise customers"
             description="Distribution across discount groups"
             actions={
               <div className="flex h-6 items-center rounded bg-muted px-2 text-xs font-semibold text-muted-foreground">
-                {groups.length} groups
+                {(groupsQuery.data ?? []).length} groups
               </div>
             }
           >
@@ -176,10 +193,7 @@ function DashboardPage() {
               valueFormatter={formatCurrency}
             />
           </Panel>
-          <Panel
-            title="Worker scanning activity"
-            description="Top performers by scans"
-          >
+          <Panel title="Worker scanning activity" description="Top performers by scans">
             <HorizontalBarChart
               data={activity}
               dataKey="scans"
@@ -199,38 +213,55 @@ function DashboardPage() {
               </Button>
             }
           >
-            <ul className="divide-y divide-border/70">
-              {recent.map((t) => (
-                <li
-                  key={t.id}
-                  className="flex items-center gap-3 py-3 px-1 transition-colors hover:bg-muted/30 first:pt-1 last:pb-1"
-                >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
-                    {t.customerName
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{t.customerName}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {t.fuel} · {t.litres} L · scanned by {t.workerName}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-foreground">
-                      {formatCurrency(t.amount)}
-                    </p>
-                    <p className="text-xs font-medium text-teal">
-                      −{formatCurrency(t.discountAmount)} ({t.discountPercent}%)
-                    </p>
-                  </div>
-                  <p className="hidden w-28 text-right text-xs text-muted-foreground sm:block">
-                    {formatDateTime(t.createdAt)}
-                  </p>
-                </li>
-              ))}
-            </ul>
+            {recent.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No recent transactions found.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border/70">
+                {recent.map((t) => {
+                  const fuelLabel = t.fuel ?? "—";
+                  const litresLabel =
+                    t.litres !== undefined && t.litres !== null ? `${t.litres} L` : "—";
+                  const initials = (t.customerName || "CU")
+                    .split(" ")
+                    .filter(Boolean)
+                    .map((n) => n[0])
+                    .join("")
+                    .slice(0, 2);
+
+                  return (
+                    <li
+                      key={t.id}
+                      className="flex items-center gap-3 py-3 px-1 transition-colors hover:bg-muted/30 first:pt-1 last:pb-1"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+                        {initials}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {t.customerName || "Customer"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {fuelLabel} · {litresLabel} · scanned by {t.workerName || "Attendant"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-foreground">
+                          {formatCurrency(t.amount)}
+                        </p>
+                        <p className="text-xs font-medium text-teal">
+                          −{formatCurrency(t.discountAmount)} ({t.discountPercent}%)
+                        </p>
+                      </div>
+                      <p className="hidden w-28 text-right text-xs text-muted-foreground sm:block">
+                        {formatDateTime(t.submittedAt)}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </Panel>
         </div>
       </div>

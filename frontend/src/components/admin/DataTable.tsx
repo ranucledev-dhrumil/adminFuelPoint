@@ -1,7 +1,13 @@
-import { ChevronLeft, ChevronRight, ChevronsUpDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export interface Column<T> {
   key: string;
@@ -10,6 +16,18 @@ export interface Column<T> {
   sortValue?: (row: T) => string | number;
   align?: "left" | "right";
   className?: string;
+}
+
+export interface ServerPaginationProps {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange?: ((size: number) => void) | undefined;
+  sortKey?: string | undefined;
+  sortDir?: "asc" | "desc" | undefined;
+  onSortChange?: ((key: string, dir: "asc" | "desc") => void) | undefined;
 }
 
 export function TablePagination({
@@ -26,12 +44,12 @@ export function TablePagination({
   currentPage: number;
   totalPages: number;
   pageSize: number;
-  pageSizeOptions?: number[];
+  pageSizeOptions?: number[] | undefined;
   totalItems: number;
   currentCount: number;
   onPageChange: (page: number) => void;
-  onPageSizeChange?: (size: number) => void;
-  className?: string;
+  onPageSizeChange?: ((size: number) => void) | undefined;
+  className?: string | undefined;
 }) {
   const safePage = Math.max(1, Math.min(currentPage, Math.max(1, totalPages)));
   const from = currentCount > 0 ? (safePage - 1) * pageSize + 1 : 0;
@@ -116,22 +134,32 @@ export function DataTable<T extends { id: string }>({
   pageSize = 10,
   emptyMessage = "No records match the current filters.",
   onRowClick,
+  serverPagination,
+  isLoading,
 }: {
   rows: T[];
   columns: Column<T>[];
-  pageSize?: number;
-  emptyMessage?: string;
-  onRowClick?: (row: T) => void;
+  pageSize?: number | undefined;
+  emptyMessage?: string | undefined;
+  onRowClick?: ((row: T) => void) | undefined;
+  serverPagination?: ServerPaginationProps | undefined;
+  isLoading?: boolean | undefined;
 }) {
-  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
-  const [page, setPage] = useState(1);
+  const [clientSort, setClientSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+  const [clientPage, setClientPage] = useState(1);
   const [actualPageSize, setActualPageSize] = useState(pageSize);
 
-  useEffect(() => setPage(1), [rows.length, sort, actualPageSize]);
+  useEffect(() => {
+    if (!serverPagination) {
+      setClientPage(1);
+    }
+  }, [rows.length, clientSort, actualPageSize, serverPagination]);
+
+  const isServer = Boolean(serverPagination);
 
   const sorted = useMemo(() => {
-    if (!sort) return rows;
-    const col = columns.find((c) => c.key === sort.key);
+    if (isServer || !clientSort) return rows;
+    const col = columns.find((c) => c.key === clientSort.key);
     if (!col?.sortValue) return rows;
     return [...rows].sort((a, b) => {
       const av = col.sortValue!(a);
@@ -140,22 +168,36 @@ export function DataTable<T extends { id: string }>({
         typeof av === "number" && typeof bv === "number"
           ? av - bv
           : String(av).localeCompare(String(bv));
-      return sort.dir === "asc" ? res : -res;
+      return clientSort.dir === "asc" ? res : -res;
     });
-  }, [rows, sort, columns]);
+  }, [rows, clientSort, columns, isServer]);
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / actualPageSize));
-  const safePage = Math.min(page, totalPages);
-  const slice = sorted.slice((safePage - 1) * actualPageSize, safePage * actualPageSize);
+  const totalPages = isServer
+    ? serverPagination!.totalPages
+    : Math.max(1, Math.ceil(sorted.length / actualPageSize));
+  const safePage = isServer ? serverPagination!.currentPage : Math.min(clientPage, totalPages);
+  const slice = isServer
+    ? rows
+    : sorted.slice((safePage - 1) * actualPageSize, safePage * actualPageSize);
 
-  const toggleSort = (key: string) =>
-    setSort((prev) =>
+  const currentSortKey = isServer ? serverPagination?.sortKey : clientSort?.key;
+
+  const toggleSort = (key: string) => {
+    if (isServer && serverPagination?.onSortChange) {
+      const nextDir =
+        serverPagination.sortKey === key && serverPagination.sortDir === "asc" ? "desc" : "asc";
+      serverPagination.onSortChange(key, nextDir);
+      return;
+    }
+
+    setClientSort((prev) =>
       prev?.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" },
     );
+  };
 
   return (
-    <div>
-      <div className="overflow-x-auto">
+    <div className="relative">
+      <div className={cn("overflow-x-auto", isLoading && "opacity-60 transition-opacity")}>
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50">
@@ -167,12 +209,12 @@ export function DataTable<T extends { id: string }>({
                     col.align === "right" && "text-right",
                   )}
                 >
-                  {col.sortValue ? (
+                  {col.sortValue || (isServer && serverPagination?.onSortChange) ? (
                     <button
                       onClick={() => toggleSort(col.key)}
                       className={cn(
                         "inline-flex items-center gap-1 cursor-pointer transition-colors hover:text-foreground",
-                        sort?.key === col.key && "text-primary",
+                        currentSortKey === col.key && "text-primary font-bold",
                       )}
                     >
                       {col.header}
@@ -192,7 +234,14 @@ export function DataTable<T extends { id: string }>({
                   colSpan={columns.length}
                   className="px-4 py-12 text-center text-sm text-muted-foreground"
                 >
-                  {emptyMessage}
+                  {isLoading ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                      <span>Loading records…</span>
+                    </div>
+                  ) : (
+                    emptyMessage
+                  )}
                 </td>
               </tr>
             )}
@@ -226,12 +275,14 @@ export function DataTable<T extends { id: string }>({
       <TablePagination
         currentPage={safePage}
         totalPages={totalPages}
-        pageSize={actualPageSize}
-        pageSizeOptions={Array.from(new Set([pageSize, 10, 25, 50, 100])).sort((a, b) => a - b)}
-        totalItems={sorted.length}
+        pageSize={isServer ? serverPagination!.pageSize : actualPageSize}
+        pageSizeOptions={Array.from(
+          new Set([isServer ? serverPagination!.pageSize : pageSize, 10, 25, 50, 100]),
+        ).sort((a, b) => a - b)}
+        totalItems={isServer ? serverPagination!.totalItems : sorted.length}
         currentCount={slice.length}
-        onPageChange={setPage}
-        onPageSizeChange={setActualPageSize}
+        onPageChange={isServer ? serverPagination!.onPageChange : setClientPage}
+        onPageSizeChange={isServer ? serverPagination!.onPageSizeChange : setActualPageSize}
       />
     </div>
   );

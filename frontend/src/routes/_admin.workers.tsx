@@ -1,20 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Activity, BadgePercent, Search, UserCheck, Wrench, Pencil, Trash2, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
-import { HorizontalBarChart } from "@/components/admin/charts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Activity,
+  BadgePercent,
+  Download,
+  Loader2,
+  Pencil,
+  Plus,
+  Power,
+  Search,
+  Trash2,
+  UserCheck,
+  Wrench,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Column, DataTable } from "@/components/admin/DataTable";
 import { PageHeader, Panel, StatCard, StatusBadge } from "@/components/admin/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,21 +31,31 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAdmin } from "@/lib/admin-store";
 import {
+  exportCsv,
   formatCurrency,
   formatDate,
   formatDateTime,
   formatNumber,
+  formatPhone,
   relativeDays,
+  reportsApi,
+  workersApi,
 } from "@/services/adminService";
-import type { Worker } from "@/services/types";
+import type { Worker, WorkerQueryParams } from "@/services/types";
 
 export const Route = createFileRoute("/_admin/workers")({
   head: () => ({
@@ -60,40 +75,223 @@ export const Route = createFileRoute("/_admin/workers")({
   component: WorkersPage,
 });
 
+interface WorkerFormData {
+  id?: string;
+  name: string;
+  phone: string;
+  email: string;
+  shift: "Morning" | "Evening" | "Night";
+  status?: "active" | "offline" | "suspended";
+}
+
+const blankWorker: WorkerFormData = {
+  name: "",
+  phone: "",
+  email: "",
+  shift: "Morning",
+  status: "active",
+};
+
 function WorkersPage() {
-  const { workers, transactions, saveWorker, deleteWorker } = useAdmin();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [shift, setShift] = useState("all");
-  const [selected, setSelected] = useState<Worker | null>(null);
-  
-  const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const queryClient = useQueryClient();
+
+  // Query and table state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "offline" | "suspended">(
+    "all",
+  );
+  const [shiftFilter, setShiftFilter] = useState<"all" | "Morning" | "Evening" | "Night">("all");
+  const [sortBy, setSortBy] = useState<NonNullable<WorkerQueryParams["sort_by"]>>("joinedAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Dialog states
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingWorker, setEditingWorker] = useState<WorkerFormData | null>(null);
   const [deletingWorker, setDeletingWorker] = useState<Worker | null>(null);
 
-  const filtered = useMemo(
-    () =>
-      workers.filter(
-        (w) =>
-          (status === "all" || w.status === status) &&
-          (shift === "all" || w.shift === shift) &&
-          (w.name.toLowerCase().includes(query.toLowerCase()) ||
-            w.id.toLowerCase().includes(query.toLowerCase()) ||
-            w.email.toLowerCase().includes(query.toLowerCase())),
-      ),
-    [workers, query, status, shift],
-  );
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const totals = useMemo(
-    () => ({
-      scans: workers.reduce((s, w) => s + w.scans, 0),
-      discount: workers.reduce((s, w) => s + w.discountProcessed, 0),
-      active: workers.filter((w) => w.status === "active").length,
-    }),
-    [workers],
-  );
+  // Overview Query
+  const { data: overview } = useQuery({
+    queryKey: ["admin", "dashboard", "overview"],
+    queryFn: reportsApi.getOverview,
+  });
 
+  // Workers List Query
+  const {
+    data: workerData,
+    isLoading: isWorkersLoading,
+    isFetching: isWorkersFetching,
+  } = useQuery({
+    queryKey: [
+      "admin",
+      "workers",
+      {
+        page,
+        limit: pageSize,
+        q: debouncedSearch,
+        status: statusFilter,
+        shift: shiftFilter,
+        sort_by: sortBy,
+        order: sortOrder,
+      },
+    ],
+    queryFn: () =>
+      workersApi.list({
+        page,
+        limit: pageSize,
+        q: debouncedSearch || undefined,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        shift: shiftFilter === "all" ? undefined : shiftFilter,
+        sort_by: sortBy,
+        order: sortOrder,
+      }),
+  });
 
+  // Worker Detail Query
+  const { data: workerDetail, isLoading: isDetailLoading } = useQuery({
+    queryKey: ["admin", "worker", selectedId],
+    queryFn: () => workersApi.getById(selectedId!),
+    enabled: Boolean(selectedId),
+  });
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: workersApi.create,
+    onSuccess: (w) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "workers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard", "overview"] });
+      toast.success("Worker created", { description: w.name });
+      setEditingWorker(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to create worker", { description: err.message });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: WorkerFormData) => {
+      if (!data.id) return;
+      await workersApi.update(data.id, {
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+        shift: data.shift,
+      });
+
+      if (data.status) {
+        await workersApi.updateStatus(data.id, data.status);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "workers"] });
+      if (selectedId) {
+        queryClient.invalidateQueries({ queryKey: ["admin", "worker", selectedId] });
+      }
+      toast.success("Worker updated");
+      setEditingWorker(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to update worker", { description: err.message });
+    },
+  });
+
+  const statusToggleMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "active" | "suspended" | "offline" }) =>
+      workersApi.updateStatus(id, status),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "workers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard", "overview"] });
+      if (selectedId === updated.id) {
+        queryClient.invalidateQueries({ queryKey: ["admin", "worker", selectedId] });
+      }
+      toast.success(
+        updated.status === "active" ? "Worker activated" : `Worker status set to ${updated.status}`,
+        { description: updated.name },
+      );
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to update status", { description: err.message });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => workersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "workers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard", "overview"] });
+      toast.success("Worker deleted");
+      setDeletingWorker(null);
+      if (selectedId === deletingWorker?.id) {
+        setSelectedId(null);
+      }
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to delete worker", { description: err.message });
+    },
+  });
+
+  const handleFormSubmit = () => {
+    if (!editingWorker) return;
+    if (!editingWorker.name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    const cleanPhone = editingWorker.phone.replace(/\D/g, "");
+    if (cleanPhone.length < 10) {
+      toast.error("Valid 10-digit mobile number is required.");
+      return;
+    }
+    if (!editingWorker.email.trim() || !editingWorker.email.includes("@")) {
+      toast.error("Valid email address is required.");
+      return;
+    }
+
+    if (editingWorker.id) {
+      updateMutation.mutate(editingWorker);
+    } else {
+      createMutation.mutate({
+        name: editingWorker.name,
+        phone: editingWorker.phone,
+        email: editingWorker.email,
+        shift: editingWorker.shift,
+        status: editingWorker.status || "active",
+      });
+    }
+  };
+
+  const handleSortChange = (key: string, dir: "asc" | "desc") => {
+    const validSortKeys: Record<string, NonNullable<WorkerQueryParams["sort_by"]>> = {
+      name: "name",
+      status: "status",
+      scans: "scans",
+      customers: "customersScanned",
+      customersScanned: "customersScanned",
+      txns: "transactions",
+      transactions: "transactions",
+      discount: "discountProcessed",
+      discountProcessed: "discountProcessed",
+      last: "lastActivity",
+      lastActivity: "lastActivity",
+      shift: "shift",
+      joined: "joinedAt",
+      joinedAt: "joinedAt",
+    };
+
+    const targetKey = validSortKeys[key] || "joinedAt";
+    setSortBy(targetKey);
+    setSortOrder(dir);
+  };
 
   const columns: Column<Worker>[] = [
     {
@@ -111,7 +309,7 @@ function WorkersPage() {
           <div>
             <p className="font-medium text-foreground">{w.name}</p>
             <p className="text-xs text-muted-foreground">
-              {w.id} · {w.shift} shift
+              {formatPhone(w.phone)} · {w.shift} shift
             </p>
           </div>
         </div>
@@ -157,7 +355,7 @@ function WorkersPage() {
       key: "last",
       header: "Last activity",
       align: "right",
-      sortValue: (w) => w.lastActivity,
+      sortValue: (w) => w.lastActivity ?? "",
       render: (w) => (
         <span className="text-xs text-muted-foreground">{relativeDays(w.lastActivity)}</span>
       ),
@@ -172,7 +370,31 @@ function WorkersPage() {
             variant="ghost"
             size="icon"
             className="size-8"
-            onClick={() => setEditingWorker(w)}
+            title={w.status === "active" ? "Suspend worker" : "Activate worker"}
+            onClick={() =>
+              statusToggleMutation.mutate({
+                id: w.id,
+                status: w.status === "active" ? "suspended" : "active",
+              })
+            }
+          >
+            <Power className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            title="Edit worker"
+            onClick={() =>
+              setEditingWorker({
+                id: w.id,
+                name: w.name,
+                phone: w.phone,
+                email: w.email,
+                shift: w.shift,
+                status: w.status,
+              })
+            }
           >
             <Pencil className="size-4" />
           </Button>
@@ -180,6 +402,7 @@ function WorkersPage() {
             variant="ghost"
             size="icon"
             className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            title="Delete worker"
             onClick={() => setDeletingWorker(w)}
           >
             <Trash2 className="size-4" />
@@ -189,9 +412,26 @@ function WorkersPage() {
     },
   ];
 
-  const workerTxns = selected
-    ? transactions.filter((t) => t.workerId === selected.id).slice(0, 8)
-    : [];
+  const handleExportCsv = () => {
+    const rows = (workerData?.data ?? []).map((w) => ({
+      ID: w.id,
+      Name: w.name,
+      Phone: w.phone,
+      Email: w.email,
+      Shift: w.shift,
+      Status: w.status,
+      Joined: w.joinedAt,
+      Scans: w.scans,
+      "Customers Scanned": w.customersScanned,
+      Transactions: w.transactions,
+      "Discount Processed": w.discountProcessed,
+      "Last Activity": w.lastActivity || "",
+    }));
+    exportCsv(`workers-page-${page}.csv`, rows);
+  };
+
+  const selectedWorker = workerDetail?.worker;
+  const recentTransactions = workerDetail?.recentTransactions ?? [];
 
   return (
     <>
@@ -199,51 +439,43 @@ function WorkersPage() {
         title="Workers"
         subtitle="Scanning activity and discount handling per worker."
         actions={
-          <Button
-            onClick={() => setEditingWorker({
-              id: "",
-              name: "",
-              email: "",
-              phone: "",
-              shift: "Morning",
-              status: "active",
-              joinedAt: new Date().toISOString(),
-              scans: 0,
-              customersScanned: 0,
-              transactions: 0,
-              discountProcessed: 0,
-              lastActivity: new Date().toISOString(),
-              password: "",
-            })}
-          >
-            <Plus className="size-4" /> New Worker
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={handleExportCsv}>
+              <Download className="size-4" /> Export
+            </Button>
+            <Button onClick={() => setEditingWorker({ ...blankWorker })}>
+              <Plus className="size-4" /> New Worker
+            </Button>
+          </div>
         }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total workers" value={formatNumber(workers.length)} icon={Wrench} />
+        <StatCard
+          label="Total workers"
+          value={formatNumber(overview?.totalWorkers ?? 0)}
+          icon={Wrench}
+        />
         <StatCard
           label="Active workers"
-          value={formatNumber(totals.active)}
+          value={formatNumber(overview?.activeWorkers ?? 0)}
           icon={UserCheck}
           tone="teal"
         />
         <StatCard
-          label="Total scans"
-          value={formatNumber(totals.scans)}
+          label="Today transactions"
+          value={formatNumber(overview?.todayTransactions ?? 0)}
           icon={Activity}
           tone="navy"
         />
         <StatCard
-          label="Discount processed"
-          value={formatCurrency(totals.discount)}
+          label="Total discount handled"
+          value={formatCurrency(overview?.totalDiscount ?? 0)}
           icon={BadgePercent}
           tone="teal"
         />
       </div>
 
-      {/* Full-width Worker Directory */}
       <Panel
         title="Worker directory"
         description="Search, filter and sort the team"
@@ -253,15 +485,21 @@ function WorkersPage() {
           <div className="flex min-w-56 flex-1 items-center gap-2 rounded-lg border border-border px-3 py-2">
             <Search className="size-4 text-muted-foreground" />
             <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, ID or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, phone or email…"
               className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>
-          <Select value={status} onValueChange={setStatus}>
+          <Select
+            value={statusFilter}
+            onValueChange={(v: "all" | "active" | "offline" | "suspended") => {
+              setStatusFilter(v);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="w-36">
-              <SelectValue />
+              <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
@@ -270,9 +508,15 @@ function WorkersPage() {
               <SelectItem value="suspended">Suspended</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={shift} onValueChange={setShift}>
+          <Select
+            value={shiftFilter}
+            onValueChange={(v: "all" | "Morning" | "Evening" | "Night") => {
+              setShiftFilter(v);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="w-36">
-              <SelectValue />
+              <SelectValue placeholder="All shifts" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All shifts</SelectItem>
@@ -282,26 +526,91 @@ function WorkersPage() {
             </SelectContent>
           </Select>
         </div>
-        <DataTable rows={filtered} columns={columns} pageSize={10} onRowClick={setSelected} />
+
+        <DataTable
+          rows={workerData?.data ?? []}
+          columns={columns}
+          pageSize={pageSize}
+          isLoading={isWorkersLoading || isWorkersFetching}
+          serverPagination={{
+            currentPage: workerData?.pagination.page ?? page,
+            totalPages: workerData?.pagination.totalPages ?? 1,
+            totalItems: workerData?.pagination.total ?? 0,
+            pageSize,
+            onPageChange: (p) => setPage(p),
+            onPageSizeChange: (s) => {
+              setPageSize(s);
+              setPage(1);
+            },
+            sortKey: sortBy,
+            sortDir: sortOrder,
+            onSortChange: handleSortChange,
+          }}
+          onRowClick={(w) => setSelectedId(w.id)}
+        />
       </Panel>
 
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+      {/* Worker Detail Dialog */}
+      <Dialog open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
         <DialogContent className="sm:max-w-xl">
-          {selected && (
+          {isDetailLoading && (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          )}
+          {!isDetailLoading && selectedWorker && (
             <>
               <DialogHeader>
-                <DialogTitle>{selected.name}</DialogTitle>
-                <DialogDescription>
-                  {selected.email} · {selected.id} · {selected.shift} shift · joined {formatDate(selected.joinedAt)}
-                </DialogDescription>
+                <div className="flex items-start justify-between pr-6">
+                  <div>
+                    <DialogTitle>{selectedWorker.name}</DialogTitle>
+                    <DialogDescription>
+                      {selectedWorker.email} · {formatPhone(selectedWorker.phone)} ·{" "}
+                      {selectedWorker.shift} shift · Joined {formatDate(selectedWorker.joinedAt)}
+                    </DialogDescription>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      title="Edit worker"
+                      onClick={() => {
+                        setEditingWorker({
+                          id: selectedWorker.id,
+                          name: selectedWorker.name,
+                          phone: selectedWorker.phone,
+                          email: selectedWorker.email,
+                          shift: selectedWorker.shift,
+                          status: selectedWorker.status,
+                        });
+                        setSelectedId(null);
+                      }}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      title="Delete worker"
+                      onClick={() => {
+                        setDeletingWorker(selectedWorker);
+                        setSelectedId(null);
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
               </DialogHeader>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-2">
                 {[
-                  ["Scans", formatNumber(selected.scans)],
-                  ["Customers", formatNumber(selected.customersScanned)],
-                  ["Transactions", formatNumber(selected.transactions)],
-                  ["Discount", formatCurrency(selected.discountProcessed)],
+                  ["Scans", formatNumber(selectedWorker.scans)],
+                  ["Customers", formatNumber(selectedWorker.customersScanned)],
+                  ["Transactions", formatNumber(selectedWorker.transactions)],
+                  ["Discount", formatCurrency(selectedWorker.discountProcessed)],
                 ].map(([l, v]) => (
                   <div key={l} className="rounded-lg border border-border bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground">{l}</p>
@@ -310,20 +619,48 @@ function WorkersPage() {
                 ))}
               </div>
 
+              <div className="rounded-lg border border-border p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase">
+                  Status & Controls
+                </p>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={selectedWorker.status} />
+                    <span className="text-xs text-muted-foreground">
+                      Last active: {relativeDays(selectedWorker.lastActivity)}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() =>
+                      statusToggleMutation.mutate({
+                        id: selectedWorker.id,
+                        status: selectedWorker.status === "active" ? "suspended" : "active",
+                      })
+                    }
+                  >
+                    <Power className="size-3.5" />
+                    {selectedWorker.status === "active" ? "Suspend worker" : "Activate worker"}
+                  </Button>
+                </div>
+              </div>
+
               <div className="rounded-lg border border-border">
                 <p className="border-b border-border px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
                   Recent activity
                 </p>
                 <ul className="scrollbar-thin max-h-64 divide-y divide-border overflow-y-auto">
-                  {workerTxns.map((t) => (
+                  {recentTransactions.map((t) => (
                     <li
                       key={t.id}
                       className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
                     >
                       <span>
-                        <span className="font-medium">{t.customerName}</span>
+                        <span className="font-medium">{t.customerName || "Customer"}</span>
                         <span className="block text-xs text-muted-foreground">
-                          {formatDateTime(t.createdAt)} · {t.fuel}
+                          {formatDateTime(t.submittedAt)} {t.fuel ? `· ${t.fuel}` : ""}
                         </span>
                       </span>
                       <span className="text-right">
@@ -334,118 +671,82 @@ function WorkersPage() {
                       </span>
                     </li>
                   ))}
-                  {workerTxns.length === 0 && (
+                  {recentTransactions.length === 0 && (
                     <li className="px-4 py-6 text-center text-sm text-muted-foreground">
                       No transactions recorded.
                     </li>
                   )}
                 </ul>
               </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <StatusBadge status={selected.status} />
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => {
-                      setDeletingWorker(selected);
-                      setSelected(null);
-                    }}
-                  >
-                    Delete
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingWorker(selected);
-                      setSelected(null);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button variant="default" onClick={() => setSelected(null)}>
-                    Close
-                  </Button>
-                </div>
-              </div>
             </>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Edit Worker Dialog */}
+      {/* Create / Edit Worker Dialog */}
       <Dialog open={!!editingWorker} onOpenChange={(o) => !o && setEditingWorker(null)}>
         <DialogContent className="sm:max-w-md">
           {editingWorker && (
             <>
               <DialogHeader>
-                <DialogTitle>{editingWorker.id ? "Edit Worker" : "Create Worker"}</DialogTitle>
+                <DialogTitle>{editingWorker.id ? "Edit Worker" : "Register Worker"}</DialogTitle>
                 <DialogDescription>
-                  Update basic info and shift assignment.
+                  {editingWorker.id
+                    ? "Update worker details and shift assignment."
+                    : "Workers log in using phone/email OTP. No password required."}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="w-name">Full name</Label>
-                    <Input
-                      id="w-name"
-                      placeholder="e.g. Ramesh Singh"
-                      value={editingWorker.name}
-                      onChange={(e) => setEditingWorker({ ...editingWorker, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="w-phone">Phone number</Label>
-                    <Input
-                      id="w-phone"
-                      placeholder="e.g. 9876543210"
-                      value={editingWorker.phone}
-                      onChange={(e) => setEditingWorker({ ...editingWorker, phone: e.target.value })}
-                    />
-                  </div>
-                </div>
+
+              <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label htmlFor="w-email">Email</Label>
+                  <Label htmlFor="w-name">Full name *</Label>
                   <Input
-                    id="w-email"
-                    type="email"
-                    placeholder="e.g. ramesh@fuelpoint.in"
-                    value={editingWorker.email}
-                    onChange={(e) => setEditingWorker({ ...editingWorker, email: e.target.value })}
+                    id="w-name"
+                    placeholder="e.g. Ramesh Singh"
+                    value={editingWorker.name}
+                    onChange={(e) => setEditingWorker({ ...editingWorker, name: e.target.value })}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="w-password">{editingWorker.id ? "New Password" : "Password"}</Label>
+                    <Label htmlFor="w-phone">Phone number *</Label>
                     <Input
-                      id="w-password"
-                      type="password"
-                      placeholder={editingWorker.id ? "Leave blank to keep unchanged" : "Create password"}
-                      value={editingWorker.password || ""}
-                      onChange={(e) => setEditingWorker({ ...editingWorker, password: e.target.value })}
+                      id="w-phone"
+                      placeholder="9876543210"
+                      value={editingWorker.phone}
+                      onChange={(e) =>
+                        setEditingWorker({ ...editingWorker, phone: e.target.value })
+                      }
                     />
+                    <p className="text-xs text-muted-foreground">10-digit mobile number</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="w-confirm-password">Confirm Password</Label>
+                    <Label htmlFor="w-email">Email *</Label>
                     <Input
-                      id="w-confirm-password"
-                      type="password"
-                      placeholder="Re-enter password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      id="w-email"
+                      type="email"
+                      placeholder="ramesh@fuelpoint.in"
+                      value={editingWorker.email}
+                      onChange={(e) =>
+                        setEditingWorker({ ...editingWorker, email: e.target.value })
+                      }
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Shift</Label>
                     <Select
                       value={editingWorker.shift}
-                      onValueChange={(v: "Morning" | "Evening" | "Night") => setEditingWorker({ ...editingWorker, shift: v })}
+                      onValueChange={(v: "Morning" | "Evening" | "Night") =>
+                        setEditingWorker({ ...editingWorker, shift: v })
+                      }
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Morning">Morning</SelectItem>
                         <SelectItem value="Evening">Evening</SelectItem>
@@ -453,50 +754,47 @@ function WorkersPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select
-                      value={editingWorker.status}
-                      onValueChange={(v: "active" | "offline" | "suspended") => setEditingWorker({ ...editingWorker, status: v })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="offline">Offline</SelectItem>
-                        <SelectItem value="suspended">Suspended</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+
+                  {editingWorker.id && (
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <Select
+                        value={editingWorker.status || "active"}
+                        onValueChange={(v: "active" | "offline" | "suspended") =>
+                          setEditingWorker({ ...editingWorker, status: v })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="suspended">Suspended</SelectItem>
+                          <SelectItem value="offline">Offline</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => {
-                  setEditingWorker(null);
-                  setConfirmPassword("");
-                }}>
+
+              <div className="mt-4 flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setEditingWorker(null)}>
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => {
-                    if (!editingWorker.name.trim() || !editingWorker.email.trim() || !editingWorker.phone.trim()) {
-                      toast.error("Name, email, and phone are required.");
-                      return;
-                    }
-                    if (editingWorker.password && editingWorker.password !== confirmPassword) {
-                      toast.error("Passwords do not match.");
-                      return;
-                    }
-                    const workerToSave = { ...editingWorker };
-                    if (!workerToSave.id) {
-                      workerToSave.id = `wrk-${Date.now()}`;
-                    }
-                    saveWorker(workerToSave);
-                    toast.success(editingWorker.id ? "Worker updated" : "Worker created");
-                    setEditingWorker(null);
-                    setConfirmPassword("");
-                  }}
+                  onClick={handleFormSubmit}
+                  disabled={createMutation.isPending || updateMutation.isPending}
                 >
-                  Save changes
+                  {createMutation.isPending || updateMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Saving…
+                    </>
+                  ) : editingWorker.id ? (
+                    "Save changes"
+                  ) : (
+                    "Register worker"
+                  )}
                 </Button>
               </div>
             </>
@@ -504,32 +802,36 @@ function WorkersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Worker Alert */}
+      {/* Delete Confirmation Alert Dialog */}
       <AlertDialog open={!!deletingWorker} onOpenChange={(o) => !o && setDeletingWorker(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently remove the worker profile for{" "}
-              <span className="font-semibold text-foreground">{deletingWorker?.name}</span>.
-              They will no longer be able to log in or process scans.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (deletingWorker) {
-                  deleteWorker(deletingWorker.id);
-                  toast.success("Worker deleted");
-                  setDeletingWorker(null);
-                }
-              }}
-            >
-              Delete worker
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          {deletingWorker && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {deletingWorker.name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will mark the worker as deleted. Their past scans and transactions will
+                  remain intact for pump accounting.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => deleteMutation.mutate(deletingWorker.id)}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Deleting…
+                    </>
+                  ) : (
+                    "Delete worker"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
         </AlertDialogContent>
       </AlertDialog>
     </>

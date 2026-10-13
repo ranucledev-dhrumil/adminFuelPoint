@@ -73,14 +73,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "FuelPoint Admin Console" },
       {
         name: "description",
-        content:
-          "Admin console for petrol pump customer, worker, group and discount management.",
+        content: "Admin console for petrol pump customer, worker, group and discount management.",
       },
       { property: "og:title", content: "FuelPoint Admin Console" },
       {
         property: "og:description",
-        content:
-          "Admin console for petrol pump customer, worker, group and discount management.",
+        content: "Admin console for petrol pump customer, worker, group and discount management.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

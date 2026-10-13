@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   Search,
+  ShieldAlert,
   Sun,
   Moon,
   Tags,
@@ -22,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdmin } from "@/lib/admin-store";
 import { cn } from "@/lib/utils";
 import {
@@ -33,7 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatDateTime } from "@/services/adminService";
+import { formatDateTime, notificationsApi } from "@/services/adminService";
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -41,6 +43,7 @@ const nav = [
   { to: "/customers", label: "Customers", icon: Users },
   { to: "/groups", label: "Groups", icon: Tags },
   { to: "/reports", label: "Reports", icon: FileBarChart },
+  { to: "/audit-logs", label: "Audit Logs", icon: ShieldAlert },
 ] as const;
 
 const notificationIcons = {
@@ -51,7 +54,26 @@ const notificationIcons = {
 } as const;
 
 export function AdminShell({ children }: { children: ReactNode }) {
-  const { profile, unreadCount, logout, notifications, markRead } = useAdmin();
+  const { profile, logout } = useAdmin();
+  const queryClient = useQueryClient();
+
+  const { data: notifData } = useQuery({
+    queryKey: ["admin", "notifications", "preview"],
+    queryFn: () => notificationsApi.list({ limit: 6 }),
+    refetchInterval: 30000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => notificationsApi.markRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "notifications"] });
+    },
+  });
+
+  const notifications = notifData?.notifications ?? [];
+  const unreadCount = notifData?.unreadCount ?? 0;
+  const markRead = (id: string) => markReadMutation.mutate(id);
+
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -60,7 +82,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     }
     return false;
   });
-  
+
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("fuelpoint-theme");
@@ -99,10 +121,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
     });
   };
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const searchParams = useRouterState({ select: (s) => s.location.search }) as any;
+  const searchParams = useRouterState({ select: (s) => s.location.search }) as {
+    q?: string;
+  };
   const current = nav.find((n) => pathname.startsWith(n.to));
   const currentTitle =
-    pathname === "/search" ? "Search" : (current?.label ?? (pathname.startsWith("/profile") ? "My Profile" : "Dashboard"));
+    pathname === "/search"
+      ? "Search"
+      : (current?.label ?? (pathname.startsWith("/profile") ? "My Profile" : "Dashboard"));
 
   useEffect(() => {
     if (pathname === "/search" && searchParams.q) {
@@ -112,8 +138,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
     }
   }, [pathname, searchParams.q]);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate({ to: "/" });
   };
 
@@ -127,7 +153,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className={cn("flex items-center justify-between py-6", isCollapsed ? "flex-col gap-4 px-0" : "px-6")}>
+        <div
+          className={cn(
+            "flex items-center justify-between py-6",
+            isCollapsed ? "flex-col gap-4 px-0" : "px-6",
+          )}
+        >
           <div className={cn("flex items-center gap-3", isCollapsed && "justify-center")}>
             <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary/15 text-sidebar-primary ring-1 ring-white/15">
               <Fuel className="size-5" />
@@ -159,19 +190,19 @@ export function AdminShell({ children }: { children: ReactNode }) {
               onClick={() => setOpen(false)}
               className={cn(
                 "group relative flex items-center rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[status=active]:bg-sidebar-primary data-[status=active]:text-sidebar-primary-foreground",
-                isCollapsed ? "justify-center px-0" : "gap-3 px-3"
+                isCollapsed ? "justify-center px-0" : "gap-3 px-3",
               )}
               title={isCollapsed ? label : undefined}
             >
               <Icon className="size-[18px] shrink-0" />
               {!isCollapsed && <span className="truncate">{label}</span>}
-              
-              {!isCollapsed && to === "/notifications" && unreadCount > 0 && (
+
+              {!isCollapsed && (to as string) === "/notifications" && unreadCount > 0 && (
                 <span className="ml-auto shrink-0 rounded-full bg-teal px-2 py-0.5 text-[11px] font-semibold text-teal-foreground">
                   {unreadCount}
                 </span>
               )}
-              {isCollapsed && to === "/notifications" && unreadCount > 0 && (
+              {isCollapsed && (to as string) === "/notifications" && unreadCount > 0 && (
                 <span className="absolute right-2 top-2 size-2 rounded-full bg-teal" />
               )}
             </Link>
@@ -183,7 +214,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             onClick={handleLogout}
             className={cn(
               "group relative flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-destructive/15 hover:text-destructive outline-none cursor-pointer",
-              isCollapsed ? "justify-center px-0" : "gap-3 px-3"
+              isCollapsed ? "justify-center px-0" : "gap-3 px-3",
             )}
             title={isCollapsed ? "Logout" : undefined}
           >
@@ -212,14 +243,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
           >
             <Menu className="size-5" />
           </button>
-          
+
           <button
             className="hidden lg:flex rounded-md p-2 text-muted-foreground hover:bg-muted outline-none shrink-0"
             onClick={toggleCollapse}
             aria-label="Toggle sidebar"
             title="Toggle sidebar"
           >
-            {isCollapsed ? <ChevronsRight className="size-5" /> : <ChevronsLeft className="size-5" />}
+            {isCollapsed ? (
+              <ChevronsRight className="size-5" />
+            ) : (
+              <ChevronsLeft className="size-5" />
+            )}
           </button>
 
           <div className="hidden items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 md:flex md:w-72">
@@ -232,8 +267,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && searchQuery.trim()) {
                   navigate({
-                    to: "/search" as any,
-                    search: { q: searchQuery.trim() } as any,
+                    to: "/search",
+                    search: { q: searchQuery.trim() },
                   });
                 }
               }}
@@ -280,24 +315,30 @@ export function AdminShell({ children }: { children: ReactNode }) {
                       }}
                       className={cn(
                         "flex items-start gap-3 p-3 transition-colors hover:bg-muted/50 cursor-pointer",
-                        !n.read && "bg-accent/40"
+                        !n.read && "bg-accent/40",
                       )}
                     >
                       <span
                         className={cn(
                           "flex size-8 shrink-0 items-center justify-center rounded-md mt-0.5",
-                          n.read ? "bg-muted text-muted-foreground" : "bg-primary/12 text-primary"
+                          n.read ? "bg-muted text-muted-foreground" : "bg-primary/12 text-primary",
                         )}
                       >
                         <Icon className="size-4" />
                       </span>
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center gap-2">
-                          <p className="text-xs font-semibold leading-none text-foreground">{n.title}</p>
-                          {!n.read && <span className="size-1.5 rounded-full bg-primary shrink-0" />}
+                          <p className="text-xs font-semibold leading-none text-foreground">
+                            {n.title}
+                          </p>
+                          {!n.read && (
+                            <span className="size-1.5 rounded-full bg-primary shrink-0" />
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-2">{n.message}</p>
-                        <p className="text-[10px] text-muted-foreground">{formatDateTime(n.createdAt)}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {formatDateTime(n.createdAt)}
+                        </p>
                       </div>
                       <div className="flex flex-col gap-2 items-end shrink-0">
                         {!n.read && (
@@ -314,6 +355,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
                         {n.customerId && (
                           <Link
                             to="/customers"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNotifOpen(false);
+                            }}
+                            className="text-[10px] font-medium text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
+                          >
+                            Open
+                          </Link>
+                        )}
+                        {n.workerId && (
+                          <Link
+                            to="/workers"
                             onClick={(e) => {
                               e.stopPropagation();
                               setNotifOpen(false);
@@ -346,7 +399,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </Popover>
 
           <DropdownMenu>
-            <DropdownMenuTrigger 
+            <DropdownMenuTrigger
               className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-left hover:bg-muted cursor-pointer outline-none"
               title="My Profile"
             >
@@ -377,9 +430,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </DropdownMenu>
         </header>
 
-        <main className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 ">
-          {children}
-        </main>
+        <main className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 ">{children}</main>
       </div>
     </div>
   );

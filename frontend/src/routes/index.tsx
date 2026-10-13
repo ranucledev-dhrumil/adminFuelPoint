@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Fuel, Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAdmin } from "@/lib/admin-store";
+import { authApi } from "@/lib/api-client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -36,26 +37,63 @@ export const Route = createFileRoute("/")({
 });
 
 function LoginPage() {
-  const { login } = useAdmin();
+  const { login, authed, authReady } = useAdmin();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("rajesh.menon@fuelpoint.in");
-  const [password, setPassword] = useState("fuelpoint");
+  const [email, setEmail] = useState("admin@fuelpoint.local");
+  const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (authReady && authed) {
+      navigate({ to: "/dashboard", replace: true });
+    }
+  }, [authReady, authed, navigate]);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || password.length < 4) {
-      toast.error("Enter a valid email and a password of at least 4 characters.");
+    if (!email.trim() || !password) {
+      toast.error("Please enter both email and password.");
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      login(email.trim(), remember);
+    try {
+      await login(email.trim(), password);
+      toast.success("Signed in successfully");
       navigate({ to: "/dashboard" });
-    }, 600);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to sign in. Please verify your credentials.";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail.trim()) {
+      toast.error("Please enter your admin email address.");
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      const res = await authApi.forgotPassword(resetEmail.trim());
+      setForgot(false);
+      setResetEmail("");
+      toast.success("Password reset link sent", {
+        description:
+          res.message || "If the email is registered, a password reset link has been sent.",
+      });
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to send reset link. Please try again.";
+      toast.error(msg);
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (
@@ -179,8 +217,8 @@ function LoginPage() {
           </form>
 
           <p className="mt-6 rounded-lg border border-border bg-card px-3 py-2.5 text-xs text-muted-foreground">
-            Demo credentials are pre-filled. Authentication is mocked on the client and can be
-            wired to a real API later.
+            Enter your Super Admin credentials to sign in. Session uses secure in-memory access
+            tokens and httpOnly refresh cookies.
           </p>
         </div>
       </div>
@@ -207,15 +245,14 @@ function LoginPage() {
             <Button variant="outline" onClick={() => setForgot(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={() => {
-                setForgot(false);
-                toast.success("Reset link sent", {
-                  description: `Check ${resetEmail || "your inbox"} for instructions.`,
-                });
-              }}
-            >
-              Send reset link
+            <Button onClick={handleForgotPassword} disabled={forgotLoading}>
+              {forgotLoading ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" /> Sending…
+                </>
+              ) : (
+                "Send reset link"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

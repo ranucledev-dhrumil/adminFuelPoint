@@ -1253,7 +1253,238 @@ Executed `EXPLAIN (ANALYZE, BUFFERS)` against a generated realistic test dataset
 
 None.
 
-**Next: awaiting orchestrator instructions.**
+---
+
+## Task 20 (Phase A): Frontend Wiring — Foundations and Sign-In
+
+**Date:** 2026-10-13
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `frontend/src/lib/api-client.ts` | Created — Centralized API client with `VITE_API_URL` environment configuration, `credentials: "include"`, in-memory JWT access token management, mutex-locked automatic refresh on 401 interception with request retry, structured `ApiError` propagation, and `authApi` service methods |
+| `frontend/src/lib/admin-store.tsx` | Modified — Replaced mock `sessionStorage` with real `authApi` integration; silent session restoration on mount via httpOnly cookie, async `login()` and `logout()`, session error listener |
+| `frontend/src/routes/index.tsx` | Modified — Connected Sign In to real `login(email, password)` with loading indicators and API error toast handling; connected "Forgot password?" dialog to `authApi.forgotPassword()` with async loading; added auto-redirect to `/dashboard` when already authenticated |
+| `frontend/src/routes/reset-password.tsx` | Created — Public password recovery route `/reset-password?token=...` with search param validation, missing token handling, password match and length verification, real `authApi.resetPassword()` submission, and success redirect |
+| `frontend/src/routes/_admin.tsx` | Modified — Route guard with session verification loader, redirect to `/` for unauthenticated sessions, real logout cleanup |
+| `frontend/src/components/admin/AdminShell.tsx` | Modified — Fixed 2 TS2367 type overlap errors (`to as string`), updated `searchParams` typing to eliminate `any`, made `handleLogout` async |
+| `frontend/src/routes/_admin.search.tsx` | Modified — Fixed TS4111 index signature access on `search['q']`, fixed PageHeader and Panel prop usage |
+| `frontend/src/components/admin/primitives.tsx` | Modified — Added `description` alias on `PageHeader`, made `title` optional on `Panel` to support borderless panels, typed `StatCard` link to avoid `any` |
+| `docs/STATUS.md` | Appended Task 20 Phase A completion record |
+
+### What was implemented
+
+1. **API Client (`src/lib/api-client.ts`):**
+   - Base URL dynamically resolved from `import.meta.env["VITE_API_URL"]` with fallback to `http://localhost:3000/api/v1`.
+   - `credentials: "include"` configured across all requests so the httpOnly `fuelpoint_refresh_token` cookie is transmitted.
+   - Access token held strictly in-memory (`getAccessToken()` / `setAccessToken()`), never stored in web storage.
+   - 401 Interception & Mutex-Locked Refresh: On receipt of 401 on authenticated endpoints, a single refresh request (`POST /auth/refresh`) is dispatched while concurrent requests wait; upon renewal, failed requests are retried with the new token. If refresh fails, tokens are purged and auth failure listeners are notified.
+   - Structured `ApiError` captures `status`, `code`, `message`, and validation `details`.
+2. **Session & Auth Store (`src/lib/admin-store.tsx`):**
+   - On application load, automatically invokes `authApi.refresh()` and `authApi.getProfile()` to silently restore the session without storing tokens client-side.
+   - Real `login(email, password)` and `logout()` methods.
+3. **Sign In & Forgot Password (`src/routes/index.tsx`):**
+   - Real credential authentication with toast feedback and field validation.
+   - Connected dialog to `POST /auth/admin/forgot-password` with loading spinner.
+   - Auto-redirect to `/dashboard` if user is already authenticated.
+4. **Password Reset Page (`src/routes/reset-password.tsx`):**
+   - New dedicated route for links emailed to the administrator (`/reset-password?token=<token>`).
+   - Extracts and validates `token` from search query; presents error alert if link is missing a token.
+   - Validates $\ge 8$ character password length and matching confirmation.
+   - Calls `POST /auth/admin/reset-password` and displays success notification before redirecting to sign in.
+5. **Fixed Existing Type Errors:**
+   - Addressed all 9 type errors in `AdminShell.tsx` and `_admin.search.tsx` as approved by the owner.
+
+### Pages Tested & How
+
+- **Sign In Page (`/`):** Tested with missing fields (validation toast), form submission calling `authApi.login()`, forgot-password modal submission calling `authApi.forgotPassword()`.
+- **Reset Password Page (`/reset-password`):** Tested parameter extraction for `?token=...`, missing token state, client validation for password mismatch and length < 8, and successful submission calling `authApi.resetPassword()`.
+- **Admin Shell & Route Guard (`/_admin`):** Tested session initialization spinner while `!authReady`, redirect to `/` when unauthenticated, and authenticated layout rendering.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors).
+- `cmd /c "npm run build"`: Exited code 0 (Vite built client bundle and generated route tree in 2.71s).
+
+### Deviations
+
+None.
+
+**Next: Proceed to Task 20 Phase B.**
+
+---
+
+## Task 20 (Phase B): Frontend Wiring — Groups, Customers, and Workers
+
+**Date:** 2026-10-13
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `frontend/src/services/types.ts` | Modified — Aligned `DEFAULT_GROUP_ID` to `"00000000-0000-0000-0000-000000000001"`, removed `'pending'` customer status (aligned to DB enum `'active' \| 'inactive'`), removed `password` fields from `Customer` and `Worker` interfaces (OTP auth), added `CustomerDetail`, `WorkerDetail`, `PaginationMeta`, `CustomerQueryParams`, `WorkerQueryParams` with `exactOptionalPropertyTypes` compatibility |
+| `frontend/src/services/adminService.ts` | Modified — Implemented real API clients `groupsApi`, `customersApi`, `workersApi`, and `reportsApi` with response mappers and query string builder; added `formatPhone` (+91 formatting) and `normalizePhoneForApi` (+91 E.164 normalization) helpers; updated `formatCurrency` and `formatNumber` to gracefully parse numbers and string amounts |
+| `frontend/src/components/admin/DataTable.tsx` | Modified — Enhanced `DataTable` with server-side pagination, server-side column sorting, and loading indicators via optional `serverPagination` and `isLoading` props while preserving client-side mode for unmodified tables |
+| `frontend/src/routes/_admin.groups.tsx` | Modified — Wired to backend API using React Query (`groupsApi.list`, `create`, `update`, `toggleActive`, `delete`, and `customersApi.assignGroup`); added delete confirmation alert dialog; protected default group from deactivation/deletion; live customer count cards and stats |
+| `frontend/src/routes/_admin.customers.tsx` | Modified — Wired to backend API using React Query: server-side pagination, debounced search (`q`), status (`active`/`inactive`), and group filters, server-side column sorting; detail dialog with `GET /admin/customers/:id` and recent transactions; Create/Edit modals with OTP-based fields (no passwords) and normalized +91 phones; inline active/inactive toggle (`PATCH /:id/status`); group reassignment (`PATCH /:id/group`); soft delete (`DELETE /:id`) with confirmation dialog; CSV export |
+| `frontend/src/routes/_admin.workers.tsx` | Modified — Wired to backend API using React Query: server-side pagination, debounced search (`q`), status (`active`/`offline`/`suspended`), and shift filters, server-side sorting; detail dialog with `GET /admin/workers/:id` and recent transactions; Create/Edit modals with OTP-based fields (no passwords) and normalized +91 phones; inline activate/suspend toggle (`PATCH /:id/status`); soft delete (`DELETE /:id`) with confirmation dialog; CSV export |
+| `frontend/src/services/mockData.ts` | Modified — Removed `'pending'` customer status from mock generation |
+| `frontend/src/routes/_admin.reports.tsx` | Modified — Fixed null fallback in `sortValue` for `lastActivity` column |
+| `docs/STATUS.md` | Appended Task 20 Phase B completion record |
+
+### What was implemented
+
+1. **Groups Management (`src/routes/_admin.groups.tsx`):**
+   - Wired to `GET /api/v1/admin/groups`, `POST /api/v1/admin/groups`, `PATCH /api/v1/admin/groups/:id`, `PATCH /api/v1/admin/groups/:id/toggle-active`, and `DELETE /api/v1/admin/groups/:id`.
+   - Real customer counts from backend (`g.customerCount`).
+   - Default group guard: `isDefault` groups cannot be deactivated or deleted.
+   - Delete confirmation dialog warning that members will be moved to Default / Unassigned.
+   - Assign Customer modal wired to `PATCH /api/v1/admin/customers/:id/group` with customer dropdown.
+2. **Customers Management (`src/routes/_admin.customers.tsx`):**
+   - Wired to `GET /api/v1/admin/customers` with server pagination, limit selector, debounced search query `q`, status filter (`active`/`inactive`), group filter, and server-side sorting.
+   - Completely purged `'pending'` status from filter dropdowns, badges, and form select options.
+   - Removed password and confirm password inputs from Create and Edit dialogs (OTP-based auth).
+   - Phone formatting: display formatted with `+91 XXXXX XXXXX`, normalized to E.164 `+91XXXXXXXXXX` before API dispatch.
+   - Customer Detail Dialog: fetches real customer details and 10 most recent transactions via `GET /api/v1/admin/customers/:id`.
+   - Admin Controls: quick status toggle (`PATCH /:id/status`), group reassignment (`PATCH /:id/group`), soft delete (`DELETE /:id`).
+3. **Workers Management (`src/routes/_admin.workers.tsx`):**
+   - Wired to `GET /api/v1/admin/workers` with server pagination, limit selector, debounced search query `q`, status filter (`active`/`offline`/`suspended`), shift filter (`Morning`/`Evening`/`Night`), and server-side sorting.
+   - Removed password and confirm password inputs from Create and Edit dialogs (OTP-based auth).
+   - Phone formatting: display formatted with `+91 XXXXX XXXXX`, normalized to E.164 `+91XXXXXXXXXX` on submission.
+   - Worker Detail Dialog: fetches real worker details and 10 most recent transactions via `GET /api/v1/admin/workers/:id`.
+   - Admin Controls: quick activate/suspend toggle (`PATCH /:id/status`), soft delete (`DELETE /:id`).
+4. **DataTable Server Pagination (`src/components/admin/DataTable.tsx`):**
+   - Added support for `serverPagination` (page, totalPages, totalItems, pageSize, onPageChange, onPageSizeChange, sortKey, sortDir, onSortChange) and `isLoading` loading states while preserving client-side mode for unmodified views.
+
+### Pages Tested & How
+
+- **Groups Page (`/_admin/groups`):**
+  - Group list rendering from `groupsApi.list()`.
+  - Creating new group with discount percentage and description via `groupsApi.create()`.
+  - Editing existing group name/percentage/description via `groupsApi.update()`.
+  - Toggling active/inactive state on non-default groups via `groupsApi.toggleActive()`.
+  - Deleting non-default group with reallocation warning via `groupsApi.delete()`.
+  - Assign customer dialog loading customer list and calling `customersApi.assignGroup()`.
+- **Customers Page (`/_admin/customers`):**
+  - Server-side pagination and rows per page change.
+  - Server-side search filtering by name, phone, email with 300ms debounce.
+  - Server-side status filter (`all`, `active`, `inactive`) and group filter.
+  - Server-side column sorting by name, registered date, activity, transactions, total spend, discount, and status.
+  - Customer detail dialog fetching `GET /api/v1/admin/customers/:id` with real recent transactions.
+  - Inline active/inactive toggle calling `PATCH /api/v1/admin/customers/:id/status`.
+  - Group reassignment dropdown calling `PATCH /api/v1/admin/customers/:id/group`.
+  - Customer registration dialog with required name, 10-digit phone (+91 formatted), email, vehicle, and group; no password fields.
+  - Customer deletion with confirmation dialog calling `DELETE /api/v1/admin/customers/:id`.
+- **Workers Page (`/_admin/workers`):**
+  - Server-side pagination and rows per page change.
+  - Server-side search filtering by name, phone, email with 300ms debounce.
+  - Server-side status filter (`all`, `active`, `offline`, `suspended`) and shift filter (`all`, `Morning`, `Evening`, `Night`).
+  - Server-side column sorting by name, joined date, activity, scans, transactions, discount processed, and status.
+  - Worker detail dialog fetching `GET /api/v1/admin/workers/:id` with real recent transactions.
+  - Inline activate/suspend toggle calling `PATCH /api/v1/admin/workers/:id/status`.
+  - Worker creation dialog with name, 10-digit phone, email, shift; no password fields.
+  - Worker deletion with confirmation dialog calling `DELETE /api/v1/admin/workers/:id`.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm run typecheck"` in `frontend/`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"` in `frontend/`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"` in `frontend/`: Exited code 0 (ESLint passed with 0 errors, 7 pre-existing fast-refresh warnings in ui primitives).
+- `cmd /c "npm run build"` in `frontend/`: Exited code 0 (Vite built production client bundle in 2.80s).
+- `cmd /c "npm test"` in `backend/`: Exited code 0 (11 test suites passed, 211 tests passed).
+
+### Deviations
+
+None.
+
+---
+
+## Task 20 (Phase C): Frontend Wiring — Dashboard, Reports, Transactions, Notifications, Profile, Audit Logs, and Mock Data Removal
+
+**Date:** 2026-10-13
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `frontend/src/services/types.ts` | Modified — Added `AdminTransaction`, `AdminTransactionStatusHistory`, `AdminTransactionDetail`, `AdminTransactionQueryParams`, `NotificationQueryParams`, `AuditLogEntry`, `AuditLogQueryParams`, `ReportsSummary`, `MetricItem`, `WorkerActivityItem`, `GroupDistributionItem`, `GlobalSearchResult` interfaces; updated `Notification` with `workerId` and `readAt`; updated `AdminProfile` with `avatarUrl` |
+| `frontend/src/lib/api-client.ts` | Modified — Added `apiRequestBlob` helper for authenticated streaming file downloads with automatic 401 retry |
+| `frontend/src/services/adminService.ts` | Modified — Added `dashboardApi`, `reportsApi`, `transactionsApi`, `notificationsApi`, `auditLogsApi`, `profileApi`, `searchApi`; added `downloadBlob` and `relativeDays` helpers; removed all mock service functions and `mockData.ts` imports |
+| `frontend/src/services/mockData.ts` | Deleted — Completely removed mock data file from repository |
+| `frontend/src/lib/admin-store.tsx` | Modified — Removed mock state and mock collections (`customers`, `workers`, `groups`, `transactions`, `notifications`), maintaining clean authenticated admin session and profile state |
+| `frontend/src/components/admin/AdminShell.tsx` | Modified — Added `Audit Logs` navigation item with `ShieldAlert` icon; wired notifications preview popover directly to `notificationsApi.list({ limit: 6 })` via React Query; added "Open" worker and customer action links |
+| `frontend/src/components/admin/primitives.tsx` | Modified — Added `success` (green) and `failed` (red) tones to `StatusBadge` |
+| `frontend/src/routes/_admin.dashboard.tsx` | Modified — Wired to real `/api/v1/admin/dashboard` analytics endpoints: overview, series, group distribution, worker activity, and latest pump transactions with null-safe fuel/litres display |
+| `frontend/src/routes/_admin.reports.tsx` | Modified — Wired to real summary metrics (`/reports/summary`) and authenticated streaming CSV download (`/reports/export`); connected transactions tab to server-side paginated & sorted `/transactions` endpoint; added status badges (`pending`, `success`, `failed`); created Transaction Detail Dialog with status history and admin status-change control (`PATCH /transactions/:id/status` with `failureReason` and transition guard) |
+| `frontend/src/routes/_admin.notifications.tsx` | Modified — Connected to real `/notifications` endpoints; added filter tabs for `worker` and `registration` types; added "Open worker" button linking to `/workers`; added mark-read and mark-all-read mutations |
+| `frontend/src/routes/_admin.profile.tsx` | Modified — Connected profile form to `GET /admin/profile` and `PATCH /admin/profile` (`name`, `phone`, `location`); connected security form to `POST /admin/profile/change-password` with 8+ char and confirmation validation |
+| `frontend/src/routes/_admin.search.tsx` | Modified — Connected global search query to `GET /api/v1/admin/search?q=...` returning live customers and workers |
+| `frontend/src/routes/_admin.audit-logs.tsx` | Created — New dedicated audit log page featuring server-side pagination, action filters, actor filters, date range bounds, and dedicated highlighting for rejected scan reason codes (`CUSTOMER_INACTIVE`, `CUSTOMER_NOT_FOUND`, etc.), actor metadata, and IP addresses |
+| `docs/STATUS.md` | Appended Task 20 Phase C completion record |
+
+### What was implemented
+
+1. **Dashboard (`src/routes/_admin.dashboard.tsx`):**
+   - Connected overview cards to `GET /api/v1/admin/dashboard/overview`.
+   - Connected transaction/scan volume charts and discount trends to `GET /api/v1/admin/dashboard/series?days=...` with 7, 30, and 90 day toggles.
+   - Connected group distribution to `GET /api/v1/admin/dashboard/group-distribution`.
+   - Connected attendant scanning leaderboard to `GET /api/v1/admin/dashboard/worker-activity`.
+   - Connected recent transactions list to `transactionsApi.list({ limit: 8, sort_by: "submitted_at", order: "desc" })` with null-safe fuel (`t.fuel ?? "—"`) and litres (`t.litres ? `${t.litres} L` : "—"`).
+2. **Reports & Transactions (`src/routes/_admin.reports.tsx`):**
+   - Connected category tabs (Transactions, Discount, Customers, Workers, Groups) to `GET /api/v1/admin/reports/summary`.
+   - Streaming CSV export: calls `reportsApi.exportCsv()` fetching `GET /api/v1/admin/reports/export?format=csv` as an authenticated stream and triggers client download `${category}-report.csv`.
+   - Transactions table with server-side pagination, sorting (`submitted_at`, `amount`, `discount_amount`, `status`), and status badges (`pending`, `success`, `failed`).
+   - Transaction Detail Dialog with full metadata, null-safe fuel/litres, status transition history from `GET /admin/transactions/:id`, and admin status override control (`PATCH /admin/transactions/:id/status`) enforcing no reverting to pending, capturing `failureReason` on failure transitions, and invalidating React Query caches.
+3. **Notifications (`src/routes/_admin.notifications.tsx`):**
+   - Filter tabs: All, Unread, Registrations, Workers, System.
+   - Real query against `GET /api/v1/admin/notifications`.
+   - "Open customer" button (links to `/customers`) and "Open worker" button (links to `/workers`).
+   - "Mark read" mutation (`PATCH /notifications/:id/read`) and "Mark all read" button in header (`POST /notifications/mark-all-read`).
+4. **Admin Profile (`src/routes/_admin.profile.tsx`):**
+   - Fetches admin profile via `GET /api/v1/admin/profile`.
+   - Personal info form updating `name`, `phone`, and `location` via `PATCH /api/v1/admin/profile`.
+   - Security form changing password via `POST /api/v1/admin/profile/change-password` with 8+ character length validation and password confirmation match check.
+5. **New Audit Logs Page (`src/routes/_admin.audit-logs.tsx`):**
+   - Server-side paginated `DataTable` querying `GET /api/v1/admin/audit-logs`.
+   - Filter toolbar: action filter (`scan.rejected`, `transaction.created`, `transaction.status_changed`, etc.), actor type filter (`admin`, `worker`, `customer`, `system`), reason code search input, date range bounds.
+   - Prominent badge highlighting for rejected scan reason codes (`CUSTOMER_INACTIVE`, `CUSTOMER_NOT_FOUND`, `INVALID_QR`).
+   - Displays actor metadata, entity IDs, IP addresses, and timestamps.
+   - Event Inspector dialog displaying full JSON snapshots of `oldValue` and `newValue` alongside user agent and old/new status.
+   - Added `Audit Logs` nav item with `ShieldAlert` icon to `AdminShell.tsx`.
+6. **Global Search (`src/routes/_admin.search.tsx`):**
+   - Wired to `GET /api/v1/admin/search?q=...` returning matched customers and workers with direct navigation links.
+7. **Mock Data Removal:**
+   - Deleted `frontend/src/services/mockData.ts`.
+   - Removed all mock arrays and in-memory mock handlers from `frontend/src/services/adminService.ts` and `frontend/src/lib/admin-store.tsx`.
+
+### Pages Tested & How
+
+- **Dashboard (`/_admin/dashboard`):** Tested with 7d/30d/90d range selectors, verified stat card metrics, charts rendering series points, worker activity bar chart, and recent transaction list displaying null-safe fuel/litres.
+- **Reports & Transactions (`/_admin/reports`):** Tested range switches (today, week, month, 90d, custom), summary metrics cards, server-side pagination and sorting on transactions table, status filter (`all`, `pending`, `success`, `failed`), transaction detail modal displaying status history, admin status transition (`success` $\leftrightarrow$ `failed`) with failure reason input, and authenticated streaming CSV download.
+- **Notifications (`/_admin/notifications`):** Tested filter tabs (All, Unread, Registrations, Workers), mark-as-read mutation, mark-all-read mutation, "Open customer" button, and "Open worker" button.
+- **Admin Profile (`/_admin/profile`):** Tested profile details update with name, phone, location; tested change password form with validation for length and mismatch.
+- **Audit Logs (`/_admin/audit-logs`):** Tested action filters, actor filters, date range filters, rejected scan reason code display, and event inspector dialog.
+- **Global Search (`/_admin/search`):** Tested query search against live search endpoint returning customer and worker cards.
+- **Header Notifications (`AdminShell`):** Tested preview popover querying live notifications and unread badge count.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm run typecheck"` in `frontend/`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"` in `frontend/`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"` in `frontend/`: Exited code 0 (ESLint passed with 0 errors).
+- `cmd /c "npm run build"` in `frontend/`: Exited code 0 (Vite built production client bundle in 3.39s).
+- `cmd /c "npm test"` in `backend/`: Exited code 0 (11 test suites passed, 211 tests passed in 74.54s).
+
+### Deviations
+
+None.
+
+**Task 20 (Frontend Wiring) is now fully completed across Phases A, B, and C.**
+
+
 
 
 

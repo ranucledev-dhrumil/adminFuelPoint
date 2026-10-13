@@ -1,10 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { BadgePercent, Pencil, Plus, Power, Tags, Trash2, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Pencil, Plus, Power, Tags, Trash2, Users, UsersRound } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { DonutChart, HorizontalBarChart } from "@/components/admin/charts";
-import { PageHeader, Panel, StatCard } from "@/components/admin/primitives";
+import { PageHeader, StatCard } from "@/components/admin/primitives";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -23,13 +33,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useAdmin } from "@/lib/admin-store";
 import {
   DEFAULT_GROUP_ID,
-  formatCurrency,
+  customersApi,
   formatDate,
   formatNumber,
-  groupDistribution,
+  formatPhone,
+  groupsApi,
 } from "@/services/adminService";
 import type { Group } from "@/services/types";
 
@@ -52,27 +62,123 @@ export const Route = createFileRoute("/_admin/groups")({
   component: GroupsPage,
 });
 
-const blank = { id: "", name: "", discountPercent: 1, description: "", active: true };
+interface GroupFormData {
+  id: string;
+  name: string;
+  discountPercent: number;
+  description: string;
+  active: boolean;
+}
+
+const blankGroup: GroupFormData = {
+  id: "",
+  name: "",
+  discountPercent: 1,
+  description: "",
+  active: true,
+};
 
 function GroupsPage() {
-  const {
-    groups,
-    customers,
-    transactions,
-    saveGroup,
-    deleteGroup,
-    toggleGroupActive,
-    assignCustomerGroup,
-  } = useAdmin();
-  const [editing, setEditing] = useState<typeof blank | null>(null);
+  const queryClient = useQueryClient();
+
+  const [editing, setEditing] = useState<GroupFormData | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
   const [assignTarget, setAssignTarget] = useState<Group | null>(null);
   const [assignCustomer, setAssignCustomer] = useState("");
 
-  const stats = useMemo(
-    () => groupDistribution(customers, groups, transactions),
-    [customers, groups, transactions],
-  );
-  const totalDiscount = stats.reduce((s, g) => s + g.discountGenerated, 0);
+  // Query groups list
+  const {
+    data: groups = [],
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["admin", "groups"],
+    queryFn: groupsApi.list,
+  });
+
+  // Query customers for assign modal
+  const { data: customerList } = useQuery({
+    queryKey: ["admin", "customers", "for-assign"],
+    queryFn: () => customersApi.list({ limit: 100 }),
+    enabled: Boolean(assignTarget),
+  });
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: groupsApi.create,
+    onSuccess: (newGroup) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      toast.success("Group created", { description: newGroup.name });
+      setEditing(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to create group", { description: err.message });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: {
+        name?: string | undefined;
+        discountPercent?: number | undefined;
+        description?: string | null | undefined;
+      };
+    }) => groupsApi.update(id, data),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      toast.success("Group updated", { description: updated.name });
+      setEditing(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to update group", { description: err.message });
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: groupsApi.toggleActive,
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      toast.success(updated.active ? "Group activated" : "Group deactivated", {
+        description: updated.name,
+      });
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to toggle group status", { description: err.message });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => groupsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      toast.success("Group deleted", {
+        description: "Customers moved to Default / Unassigned.",
+      });
+      setDeletingGroup(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to delete group", { description: err.message });
+    },
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: ({ customerId, groupId }: { customerId: string; groupId: string }) =>
+      customersApi.assignGroup(customerId, groupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
+      toast.success("Customer assigned", { description: assignTarget?.name });
+      setAssignCustomer("");
+      setAssignTarget(null);
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to assign customer", { description: err.message });
+    },
+  });
 
   const submit = () => {
     if (!editing) return;
@@ -80,11 +186,39 @@ function GroupsPage() {
       toast.error("Group name is required.");
       return;
     }
-    const id = editing.id || `grp-${editing.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-    saveGroup({ ...editing, id, discountPercent: Number(editing.discountPercent) || 0 });
-    toast.success(editing.id ? "Group updated" : "Group created", { description: editing.name });
-    setEditing(null);
+
+    const discountPercent = Number(editing.discountPercent) || 0;
+    if (discountPercent < 0 || discountPercent > 100) {
+      toast.error("Discount percentage must be between 0 and 100.");
+      return;
+    }
+
+    if (editing.id) {
+      updateMutation.mutate({
+        id: editing.id,
+        data: {
+          name: editing.name.trim(),
+          discountPercent,
+          description: editing.description.trim() || null,
+        },
+      });
+    } else {
+      createMutation.mutate({
+        name: editing.name.trim(),
+        discountPercent,
+        description: editing.description.trim() || null,
+        active: editing.active,
+      });
+    }
   };
+
+  const totalGroups = groups.length;
+  const activeGroups = groups.filter((g) => g.active).length;
+  const groupedCustomers = groups
+    .filter((g) => !g.isDefault && g.id !== DEFAULT_GROUP_ID)
+    .reduce((s, g) => s + (g.customerCount ?? 0), 0);
+  const unassignedCustomers =
+    groups.find((g) => g.isDefault || g.id === DEFAULT_GROUP_ID)?.customerCount ?? 0;
 
   return (
     <>
@@ -92,132 +226,150 @@ function GroupsPage() {
         title="Groups"
         subtitle="Define discount groups and control the percentage applied at scan time."
         actions={
-          <Button onClick={() => setEditing({ ...blank })}>
+          <Button onClick={() => setEditing({ ...blankGroup })}>
             <Plus className="size-4" /> New group
           </Button>
         }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total groups" value={formatNumber(groups.length)} icon={Tags} />
+        <StatCard label="Total groups" value={formatNumber(totalGroups)} icon={Tags} />
         <StatCard
           label="Active groups"
-          value={formatNumber(groups.filter((g) => g.active).length)}
+          value={formatNumber(activeGroups)}
           icon={Power}
           tone="teal"
         />
         <StatCard
           label="Grouped customers"
-          value={formatNumber(customers.filter((c) => c.groupId !== DEFAULT_GROUP_ID).length)}
+          value={formatNumber(groupedCustomers)}
           icon={Users}
           tone="navy"
         />
         <StatCard
-          label="Discount generated"
-          value={formatCurrency(totalDiscount)}
-          icon={BadgePercent}
+          label="Default / Unassigned"
+          value={formatNumber(unassignedCustomers)}
+          icon={UsersRound}
           tone="teal"
         />
       </div>
 
-      <div className="mt-8 grid gap-4 lg:grid-cols-2">
-        {stats.map((g) => {
-          const group = groups.find((x) => x.id === g.id)!;
-          return (
-            <div
-              key={g.id}
-              className="surface-card flex flex-col justify-between p-5 transition-all duration-200 hover:shadow-elevated"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-semibold text-foreground">{g.name}</h3>
-                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                      {g.discountPercent}% discount
-                    </span>
-                    {!g.active && (
-                      <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        Inactive
+      {isLoading && (
+        <div className="mt-12 flex items-center justify-center gap-2 text-muted-foreground">
+          <Loader2 className="size-5 animate-spin text-primary" />
+          <span>Loading discount groups…</span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="mt-8 rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-center text-sm text-destructive">
+          Failed to load groups from server. Please try refreshing.
+        </div>
+      )}
+
+      {!isLoading && !isError && (
+        <div className="mt-8 grid gap-4 lg:grid-cols-2">
+          {groups.map((group) => {
+            const isDef = group.isDefault || group.id === DEFAULT_GROUP_ID;
+            return (
+              <div
+                key={group.id}
+                className="surface-card flex flex-col justify-between p-5 transition-all duration-200 hover:shadow-elevated"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-semibold text-foreground">{group.name}</h3>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+                        {group.discountPercent}% discount
                       </span>
+                      {isDef && (
+                        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                          Default
+                        </span>
+                      )}
+                      {!group.active && (
+                        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                      {group.description || "No description provided."}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Created {formatDate(group.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button variant="outline" size="sm" onClick={() => setAssignTarget(group)}>
+                      Assign customers
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Edit group"
+                      title="Edit group"
+                      onClick={() =>
+                        setEditing({
+                          id: group.id,
+                          name: group.name,
+                          discountPercent: group.discountPercent,
+                          description: group.description || "",
+                          active: group.active,
+                        })
+                      }
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                    {!isDef && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          aria-label="Toggle active"
+                          title={group.active ? "Deactivate group" : "Activate group"}
+                          onClick={() => toggleActiveMutation.mutate(group.id)}
+                          disabled={toggleActiveMutation.isPending}
+                        >
+                          <Power className="size-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          aria-label="Delete group"
+                          title="Delete group"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setDeletingGroup(group)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </>
                     )}
                   </div>
-                  <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                    {group.description || "No description provided."}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Created {formatDate(group.createdAt)}
-                  </p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Button variant="outline" size="sm" onClick={() => setAssignTarget(group)}>
-                    Assign customers
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Edit group"
-                    title="Edit group"
-                    onClick={() =>
-                      setEditing({
-                        id: group.id,
-                        name: group.name,
-                        discountPercent: group.discountPercent,
-                        description: group.description,
-                        active: group.active,
-                      })
-                    }
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  {!group.isDefault && (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Toggle active"
-                        title={group.active ? "Deactivate group" : "Activate group"}
-                        onClick={() => toggleGroupActive(group.id)}
-                      >
-                        <Power className="size-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Delete group"
-                        title="Delete group"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => {
-                          deleteGroup(group.id);
-                          toast.success("Group deleted", {
-                            description: `${group.name} customers moved to Default / Unassigned.`,
-                          });
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
-                {[
-                  ["Customers", formatNumber(g.customers)],
-                  ["Transactions", formatNumber(g.transactions)],
-                  ["Discount generated", formatCurrency(g.discountGenerated)],
-                ].map(([l, v]) => (
-                  <div key={l} className="rounded-lg bg-muted/40 p-3">
-                    <p className="text-xs text-muted-foreground">{l}</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{v}</p>
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Customers</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {formatNumber(group.customerCount ?? 0)}
+                    </p>
                   </div>
-                ))}
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Discount percentage</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {group.discountPercent}%
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Create / edit */}
+      {/* Create / Edit Dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="sm:max-w-md">
           {editing && (
@@ -239,7 +391,7 @@ function GroupsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="g-pct">Discount percentage</Label>
+                  <Label htmlFor="g-pct">Discount percentage (0–100%)</Label>
                   <Input
                     id="g-pct"
                     type="number"
@@ -266,14 +418,60 @@ function GroupsPage() {
                 <Button variant="outline" onClick={() => setEditing(null)}>
                   Cancel
                 </Button>
-                <Button onClick={submit}>{editing.id ? "Save changes" : "Create group"}</Button>
+                <Button
+                  onClick={submit}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                >
+                  {createMutation.isPending || updateMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Saving…
+                    </>
+                  ) : editing.id ? (
+                    "Save changes"
+                  ) : (
+                    "Create group"
+                  )}
+                </Button>
               </DialogFooter>
             </>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Assign customers */}
+      {/* Delete Group Confirmation */}
+      <AlertDialog open={!!deletingGroup} onOpenChange={(o) => !o && setDeletingGroup(null)}>
+        <AlertDialogContent>
+          {deletingGroup && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {deletingGroup.name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. All customers currently in {deletingGroup.name} will
+                  be moved to the Default / Unassigned group.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => deleteMutation.mutate(deletingGroup.id)}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Deleting…
+                    </>
+                  ) : (
+                    "Delete group"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Assign customers Dialog */}
       <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
         <DialogContent className="sm:max-w-md">
           {assignTarget && (
@@ -281,7 +479,8 @@ function GroupsPage() {
               <DialogHeader>
                 <DialogTitle>Assign customer to {assignTarget.name}</DialogTitle>
                 <DialogDescription>
-                  Unassigned customers are listed first — they are waiting for a group.
+                  Select a customer to reassign their discount group to {assignTarget.name} (
+                  {assignTarget.discountPercent}%).
                 </DialogDescription>
               </DialogHeader>
               <Select value={assignCustomer} onValueChange={setAssignCustomer}>
@@ -289,15 +488,11 @@ function GroupsPage() {
                   <SelectValue placeholder="Select a customer" />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {[...customers]
+                  {(customerList?.data ?? [])
                     .filter((c) => c.groupId !== assignTarget.id)
-                    .sort((a, b) =>
-                      a.groupId === DEFAULT_GROUP_ID ? -1 : b.groupId === DEFAULT_GROUP_ID ? 1 : 0,
-                    )
-                    .slice(0, 60)
                     .map((c) => (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.name} · {c.phone}
+                        {c.name} · {formatPhone(c.phone)} ({c.groupName || "Unassigned"})
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -307,15 +502,21 @@ function GroupsPage() {
                   Cancel
                 </Button>
                 <Button
-                  disabled={!assignCustomer}
+                  disabled={!assignCustomer || assignMutation.isPending}
                   onClick={() => {
-                    assignCustomerGroup(assignCustomer, assignTarget.id);
-                    toast.success("Customer assigned", { description: assignTarget.name });
-                    setAssignCustomer("");
-                    setAssignTarget(null);
+                    assignMutation.mutate({
+                      customerId: assignCustomer,
+                      groupId: assignTarget.id,
+                    });
                   }}
                 >
-                  Assign
+                  {assignMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Assigning…
+                    </>
+                  ) : (
+                    "Assign"
+                  )}
                 </Button>
               </DialogFooter>
             </>

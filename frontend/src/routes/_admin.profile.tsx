@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Camera, KeyRound, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageHeader, Panel } from "@/components/admin/primitives";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useAdmin } from "@/lib/admin-store";
-import { formatDate } from "@/services/adminService";
+import { formatDate, formatPhone, profileApi } from "@/services/adminService";
 
 export const Route = createFileRoute("/_admin/profile")({
   head: () => ({
@@ -29,45 +30,110 @@ export const Route = createFileRoute("/_admin/profile")({
 });
 
 function ProfilePage() {
-  const { profile, updateProfile } = useAdmin();
+  const queryClient = useQueryClient();
+  const { setProfile: setStoreProfile } = useAdmin();
+
+  const profileQuery = useQuery({
+    queryKey: ["admin", "profile"],
+    queryFn: () => profileApi.get(),
+  });
+
+  const profile = profileQuery.data ?? {
+    name: "Administrator",
+    email: "admin@fuelpoint.local",
+    phone: "",
+    role: "admin",
+    location: "Main Station",
+    joinedAt: new Date().toISOString(),
+    initials: "AD",
+    avatarUrl: null,
+  };
+
   const [form, setForm] = useState({
     name: profile.name,
-    email: profile.email,
     phone: profile.phone,
     location: profile.location,
   });
+
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
 
-  const save = () => {
-    if (!form.name.trim() || !form.email.trim()) {
-      toast.error("Name and email are required.");
+  // Sync form state when profile data loads
+  useEffect(() => {
+    if (profileQuery.data) {
+      setForm({
+        name: profileQuery.data.name,
+        phone: profileQuery.data.phone || "",
+        location: profileQuery.data.location || "",
+      });
+      setStoreProfile(profileQuery.data);
+    }
+  }, [profileQuery.data, setStoreProfile]);
+
+  const updateProfileMutation = useMutation({
+    mutationFn: (data: { name: string; phone?: string | null; location?: string | null }) =>
+      profileApi.update(data),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["admin", "profile"], updated);
+      setStoreProfile(updated);
+      toast.success("Profile updated successfully");
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to update profile", { description: err.message });
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: (data: { currentPassword: string; newPassword: string }) =>
+      profileApi.changePassword(data),
+    onSuccess: () => {
+      setPw({ current: "", next: "", confirm: "" });
+      toast.success("Password changed successfully");
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to change password", { description: err.message });
+    },
+  });
+
+  const handleSaveProfile = () => {
+    if (!form.name.trim()) {
+      toast.error("Name cannot be empty.");
       return;
     }
-    updateProfile({ ...form, initials: form.name.split(" ").map((n) => n[0]).join("").slice(0, 2) });
-    toast.success("Profile updated");
+    updateProfileMutation.mutate({
+      name: form.name.trim(),
+      phone: form.phone.trim() || null,
+      location: form.location.trim() || null,
+    });
   };
 
-  const changePassword = () => {
+  const handleChangePassword = () => {
+    if (!pw.current) {
+      toast.error("Please enter your current password.");
+      return;
+    }
     if (pw.next.length < 8) {
-      toast.error("New password must be at least 8 characters.");
+      toast.error("New password must be at least 8 characters long.");
       return;
     }
     if (pw.next !== pw.confirm) {
-      toast.error("Passwords do not match.");
+      toast.error("New passwords do not match.");
       return;
     }
-    setPw({ current: "", next: "", confirm: "" });
-    toast.success("Password changed");
+    changePasswordMutation.mutate({
+      currentPassword: pw.current,
+      newPassword: pw.next,
+    });
   };
 
   return (
     <>
       <PageHeader title="My Profile" subtitle="Your administrator account and security settings." />
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <div className="surface-card p-4 text-center">
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Profile Card */}
+        <div className="surface-card p-6 text-center">
           <div className="relative mx-auto w-fit">
-            <div className="gradient-brand flex size-20 items-center justify-center rounded-full text-2xl font-bold text-primary-foreground">
+            <div className="gradient-brand flex size-20 items-center justify-center rounded-full text-2xl font-bold text-primary-foreground shadow-sm">
               {profile.initials}
             </div>
             <button
@@ -78,60 +144,102 @@ function ProfilePage() {
               <Camera className="size-4" />
             </button>
           </div>
-          <h2 className="mt-3 text-lg font-semibold text-foreground">{profile.name}</h2>
+          <h2 className="mt-4 text-lg font-semibold text-foreground">{profile.name}</h2>
           <p className="text-sm text-muted-foreground">{profile.email}</p>
-          <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+          <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary capitalize">
             <ShieldCheck className="size-3.5" /> {profile.role}
           </span>
 
-          <Separator className="my-3" />
+          <Separator className="my-5" />
           <dl className="space-y-3 text-left text-sm">
-            {[
-              ["Phone", profile.phone],
-              ["Location", profile.location],
-              ["Admin since", formatDate(profile.joinedAt)],
-            ].map(([l, v]) => (
-              <div key={l} className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">{l}</dt>
-                <dd className="text-right font-medium text-foreground">{v}</dd>
-              </div>
-            ))}
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">Phone</dt>
+              <dd className="text-right font-medium text-foreground">
+                {profile.phone ? formatPhone(profile.phone) : "—"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">Location</dt>
+              <dd className="text-right font-medium text-foreground">{profile.location || "—"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">Admin since</dt>
+              <dd className="text-right font-medium text-foreground">
+                {formatDate(profile.joinedAt)}
+              </dd>
+            </div>
           </dl>
         </div>
 
-        <div className="lg:col-span-2">
-          <Panel title="Account & Security" description="Manage your admin details and password">
-            <div className="grid gap-3 sm:grid-cols-2">
+        {/* Profile & Security Forms */}
+        <div className="lg:col-span-2 space-y-6">
+          <Panel
+            title="Personal Information"
+            description="Update your name, contact phone and location"
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="p-name">Full name</Label>
-                <Input id="p-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <Input
+                  id="p-name"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="p-email">Email address</Label>
                 <Input
                   id="p-email"
                   type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  value={profile.email}
+                  disabled
+                  className="bg-muted cursor-not-allowed opacity-80"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="p-phone">Phone</Label>
-                <Input id="p-phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <Label htmlFor="p-phone">Phone number</Label>
+                <Input
+                  id="p-phone"
+                  placeholder="+91 98765 43210"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="p-loc">Location</Label>
                 <Input
                   id="p-loc"
+                  placeholder="e.g. Pump Station 1, Mumbai"
                   value={form.location}
                   onChange={(e) => setForm({ ...form, location: e.target.value })}
                 />
               </div>
             </div>
-            
-            <Separator className="my-4" />
-            
-            <div className="grid gap-3 sm:grid-cols-3">
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setForm({
+                    name: profile.name,
+                    phone: profile.phone || "",
+                    location: profile.location || "",
+                  })
+                }
+              >
+                Reset
+              </Button>
+              <Button disabled={updateProfileMutation.isPending} onClick={handleSaveProfile}>
+                {updateProfileMutation.isPending ? "Saving…" : "Save Information"}
+              </Button>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Security & Password"
+            description="Ensure your account uses a secure password"
+          >
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="pw-c">Current password</Label>
                 <Input
@@ -147,13 +255,13 @@ function ProfilePage() {
                 <Input
                   id="pw-n"
                   type="password"
-                  placeholder="New password"
+                  placeholder="Min 8 characters"
                   value={pw.next}
                   onChange={(e) => setPw({ ...pw, next: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pw-r">Confirm password</Label>
+                <Label htmlFor="pw-r">Confirm new password</Label>
                 <Input
                   id="pw-r"
                   type="password"
@@ -163,23 +271,11 @@ function ProfilePage() {
                 />
               </div>
             </div>
-            
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() =>
-                  setForm({
-                    name: profile.name,
-                    email: profile.email,
-                    phone: profile.phone,
-                    location: profile.location,
-                  })
-                }
-              >
-                Reset
-              </Button>
-              <Button onClick={() => { save(); if (pw.next) changePassword(); }}>
-                <KeyRound className="size-4" /> Save all changes
+
+            <div className="mt-5 flex justify-end">
+              <Button disabled={changePasswordMutation.isPending} onClick={handleChangePassword}>
+                <KeyRound className="size-4" />
+                {changePasswordMutation.isPending ? "Changing…" : "Change Password"}
               </Button>
             </div>
           </Panel>

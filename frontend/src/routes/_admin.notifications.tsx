@@ -1,11 +1,17 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Bell, BellRing, CheckCheck, Tags, UserPlus, Wrench } from "lucide-react";
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageHeader, Panel, StatCard } from "@/components/admin/primitives";
 import { Button } from "@/components/ui/button";
-import { useAdmin } from "@/lib/admin-store";
-import { formatDateTime, formatNumber, DEFAULT_GROUP_ID } from "@/services/adminService";
+import {
+  customersApi,
+  formatDateTime,
+  formatNumber,
+  notificationsApi,
+  DEFAULT_GROUP_ID,
+} from "@/services/adminService";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_admin/notifications")({
@@ -14,8 +20,7 @@ export const Route = createFileRoute("/_admin/notifications")({
       { title: "Notifications — FuelPoint Admin" },
       {
         name: "description",
-        content:
-          "Admin notification centre: new customer registrations awaiting group assignment and system alerts.",
+        content: "Admin notification centre: new customer registrations, worker logins and alerts.",
       },
       { property: "og:title", content: "Notifications — FuelPoint Admin" },
       {
@@ -38,16 +43,61 @@ const filters = [
   { key: "all", label: "All" },
   { key: "unread", label: "Unread" },
   { key: "registration", label: "Registrations" },
+  { key: "worker", label: "Workers" },
   { key: "system", label: "System" },
 ] as const;
 
 function NotificationsPage() {
-  const { notifications, unreadCount, markRead, markAllRead, customers } = useAdmin();
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<string>("all");
 
-  const list = notifications.filter((n) =>
-    filter === "all" ? true : filter === "unread" ? !n.read : n.type === filter,
-  );
+  const queryType =
+    filter === "registration" || filter === "worker"
+      ? (filter as "registration" | "worker")
+      : undefined;
+  const unreadOnly = filter === "unread" ? true : undefined;
+
+  const notificationsQuery = useQuery({
+    queryKey: ["admin", "notifications", { type: queryType, unreadOnly }],
+    queryFn: () =>
+      notificationsApi.list({
+        type: queryType,
+        unreadOnly,
+        limit: 50,
+      }),
+  });
+
+  const pendingGroupQuery = useQuery({
+    queryKey: ["admin", "customers", "pending-group-count"],
+    queryFn: () => customersApi.list({ group_id: DEFAULT_GROUP_ID, limit: 1 }),
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => notificationsApi.markRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "notifications"] });
+      toast.success("Notification marked as read");
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to mark as read", { description: err.message });
+    },
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: () => notificationsApi.markAllRead(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "notifications"] });
+      toast.success("All notifications marked as read");
+    },
+    onError: (err: Error) => {
+      toast.error("Failed to mark all as read", { description: err.message });
+    },
+  });
+
+  const notifications = notificationsQuery.data?.notifications ?? [];
+  const totalCount = notificationsQuery.data?.pagination.total ?? notifications.length;
+  const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
+  const pendingGroupCount = pendingGroupQuery.data?.pagination.total ?? 0;
 
   return (
     <>
@@ -57,24 +107,24 @@ function NotificationsPage() {
         actions={
           <Button
             variant="outline"
-            onClick={() => {
-              markAllRead();
-              toast.success("All notifications marked as read");
-            }}
+            disabled={markAllReadMutation.isPending || unreadCount === 0}
+            onClick={() => markAllReadMutation.mutate()}
           >
-            <CheckCheck className="size-4" /> Mark all read
+            <CheckCheck className="size-4" />
+            {markAllReadMutation.isPending ? "Marking…" : "Mark all read"}
           </Button>
         }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard label="Total notifications" value={formatNumber(notifications.length)} icon={Bell} />
+        <StatCard label="Total notifications" value={formatNumber(totalCount)} icon={Bell} />
         <StatCard label="Unread" value={formatNumber(unreadCount)} icon={BellRing} tone="warning" />
         <StatCard
           label="Registrations pending group"
-          value={formatNumber(customers.filter((c) => c.groupId === DEFAULT_GROUP_ID).length)}
+          value={formatNumber(pendingGroupCount)}
           icon={UserPlus}
           tone="teal"
+          to="/customers"
         />
       </div>
 
@@ -96,13 +146,13 @@ function NotificationsPage() {
         </div>
 
         <ul className="divide-y divide-border">
-          {list.map((n) => {
-            const Icon = icons[n.type];
+          {notifications.map((n) => {
+            const Icon = icons[n.type] ?? Bell;
             return (
               <li
                 key={n.id}
                 className={cn(
-                  "flex flex-wrap items-start gap-3 px-1 py-4",
+                  "flex flex-wrap items-start gap-3 px-1 py-4 transition-colors",
                   !n.read && "bg-accent/40",
                 )}
               >
@@ -120,7 +170,9 @@ function NotificationsPage() {
                     {!n.read && <span className="size-2 rounded-full bg-primary" />}
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{n.message}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatDateTime(n.createdAt)}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   {n.customerId && (
@@ -128,8 +180,18 @@ function NotificationsPage() {
                       <Link to="/customers">Open customer</Link>
                     </Button>
                   )}
+                  {n.workerId && (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to="/workers">Open worker</Link>
+                    </Button>
+                  )}
                   {!n.read && (
-                    <Button size="sm" variant="ghost" onClick={() => markRead(n.id)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={markReadMutation.isPending}
+                      onClick={() => markReadMutation.mutate(n.id)}
+                    >
                       Mark read
                     </Button>
                   )}
@@ -137,9 +199,11 @@ function NotificationsPage() {
               </li>
             );
           })}
-          {list.length === 0 && (
+          {notifications.length === 0 && (
             <li className="py-12 text-center text-sm text-muted-foreground">
-              Nothing here — you're all caught up.
+              {notificationsQuery.isLoading
+                ? "Loading notifications…"
+                : "Nothing here — you're all caught up."}
             </li>
           )}
         </ul>
