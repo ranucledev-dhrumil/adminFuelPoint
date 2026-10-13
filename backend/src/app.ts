@@ -10,6 +10,7 @@ import { pool } from "./db/pool.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { adminRouter } from "./modules/admin-users/admin.routes.js";
 import { customerMobileRouter } from "./modules/customers/customer-mobile.routes.js";
+import { workerTransactionRouter } from "./modules/transactions/worker-transaction.routes.js";
 
 export const app: Express = express();
 
@@ -36,6 +37,7 @@ app.use(generalRateLimiter);
 app.use(`${env.API_PREFIX}/auth`, authRouter);
 app.use(`${env.API_PREFIX}/admin`, adminRouter);
 app.use(`${env.API_PREFIX}/customer`, customerMobileRouter);
+app.use(`${env.API_PREFIX}/worker`, workerTransactionRouter);
 
 // Health check endpoint
 app.get(`${env.API_PREFIX}/health`, async (_req: Request, res: Response) => {

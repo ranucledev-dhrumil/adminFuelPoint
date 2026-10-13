@@ -75,6 +75,16 @@ export class ValidationError extends AppError {
   }
 }
 
+export class UnprocessableEntityError extends AppError {
+  constructor(
+    message: string = "Unprocessable Entity",
+    code: string = "UNPROCESSABLE_ENTITY",
+    details: unknown = null,
+  ) {
+    super(message, 422, code, details);
+  }
+}
+
 export class TooManyRequestsError extends AppError {
   constructor(
     message: string = "Too many requests. Please try again later.",

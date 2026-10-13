@@ -1048,7 +1048,91 @@ None.
 
 None.
 
+---
+
+## Task 18: Transaction Flow (Worker Scan, Submit, Status Transitions, Admin Management & History)
+
+**Date:** 2026-10-13
+
+### Files changed / written
+
+| File | Action |
+|---|---|
+| `backend/src/common/errors/app-error.ts` | Modified — Added `UnprocessableEntityError` (HTTP 422) |
+| `backend/src/common/utils/crypto.ts` | Modified — Added `signScanTicket` and `verifyScanTicket` using 5-minute signed JWTs |
+| `backend/src/common/utils/date.ts` | Created — Date boundary parsing utility for `Asia/Kolkata` (IST, UTC+5:30) date filters |
+| `backend/src/common/middleware/rate-limiter.ts` | Modified — Added `workerScanRateLimiter` (30 scans/min per worker) and test skip for `generalRateLimiter` |
+| `backend/src/modules/transactions/transaction.repository.ts` | Created — Repository for transactions table queries: scan lookups, idempotent creation, status transitions, worker activity tracking, customer activity recalculation, status history, and paginated listings |
+| `backend/src/modules/transactions/transaction.service.ts` | Created — Business domain logic for scan QR, Decimal.js rounding matching PostgreSQL ROUND, idempotent submissions, retry handling, status transitions, ownership enforcement, and audit logs |
+| `backend/src/modules/transactions/transaction.controller.ts` | Created — HTTP controllers for scan, submit, status updates, worker history, customer history, admin list, and admin detail |
+| `backend/src/modules/transactions/worker-transaction.routes.ts` | Created — Worker routes (`POST /scan`, `POST /transactions`, `PATCH /transactions/:id/status`, `GET /transactions`) |
+| `backend/src/modules/transactions/admin-transaction.routes.ts` | Created — Admin routes (`GET /`, `GET /:id`, `PATCH /:id/status`) |
+| `backend/src/modules/customers/customer-mobile.routes.ts` | Modified — Mounted `GET /transactions` for authenticated customer transaction history |
+| `backend/src/modules/admin-users/admin.routes.ts` | Modified — Mounted `adminTransactionRouter` under `/transactions` |
+| `backend/src/app.ts` | Modified — Mounted `workerTransactionRouter` under `/api/v1/worker` |
+| `backend/src/tests/transactions.test.ts` | Created — 31 integration tests covering worker scan, inactive customer rejection, unknown token rejection, scan rate limit, decimal calculation, idempotency retry & conflict, concurrency, status transitions (`pending -> success/failed`, `success <-> failed`), revert-to-pending blocking, ownership checks, admin overrides, and aggregates |
+| `docs/STATUS.md` | Appended Task 18 completion record |
+
+### What was implemented
+
+1. **`POST /api/v1/worker/scan`:**
+   - Validates worker active status and applies 30 scans/minute per-worker rate limit.
+   - Looks up customer by QR token.
+   - Rejects unknown / non-existent tokens with `404 CUSTOMER_NOT_FOUND`. Records standalone audit log `scan.rejected` with `reason: "CUSTOMER_NOT_FOUND"` (never logging the scanned token).
+   - Rejects inactive customers with `422 CUSTOMER_INACTIVE`. Records standalone audit log `scan.rejected` with `reason: "CUSTOMER_INACTIVE"` (never logging the scanned token).
+   - Inactive Group Rule (D38): If customer's group is deactivated (`active = false`), applies `0.00%` discount and scan proceeds normally.
+   - Generates cryptographically signed, short-lived 5-minute `scanTicket` containing customer ID, group ID, and effective discount percent.
+2. **`POST /api/v1/worker/transactions`:**
+   - Verifies cryptographic signature and expiry of `scanTicket` (`400 EXPIRED_SCAN_TICKET`).
+   - Validates positive amount and positive litres.
+   - Computes discounts using `decimal.js` with `Decimal.ROUND_HALF_UP` matching PostgreSQL `ROUND(..., 2)`.
+   - Client supplies UUID `id` for retry safety:
+     - Identical retry (same worker, identical payload) returns `200 OK` with existing transaction.
+     - Payload mismatch or different worker returns `409 Conflict` (`IDEMPOTENCY_CONFLICT`).
+     - Concurrency collision handling on PK insert safely falls back to idempotency verification.
+   - Inserts transaction with `status = 'pending'`, sets `submitted_at = now()`, `resolved_at = null`.
+   - Atomically updates `workers.last_activity_at = now()`.
+   - Records transactional audit log `transaction.created`.
+3. **`PATCH /api/v1/worker/transactions/:id/status` & `/api/v1/admin/transactions/:id/status`:**
+   - Allowed transitions: `pending -> success`, `pending -> failed`, `success <-> failed`.
+   - Reverting to `pending` is strictly forbidden (`400 CANNOT_REVERT_TO_PENDING` / Zod validation).
+   - Worker ownership check: workers can update only their own transactions (`403 NOT_OWN_TRANSACTION`). Admins can update any transaction.
+   - Timestamp `resolved_at` is set on the initial transition from `pending` and preserved on subsequent switches.
+   - Recalculates `customers.last_activity_at` when status transitions to or from `success` (resets to `NULL` if no success transactions remain).
+   - Does **not** modify `workers.last_activity_at`.
+   - Commits transactional audit log `transaction.status_changed` capturing `old_status`, `new_status`, `reason`, and actor metadata.
+4. **History & Admin Listings:**
+   - `GET /api/v1/worker/transactions`: Worker's own transactions with pagination, status, and date range filters.
+   - `GET /api/v1/customer/transactions`: Customer's own transactions with pagination.
+   - `GET /api/v1/admin/transactions`: Admin list with filters (`status`, `customerId`, `workerId`, `groupId`, `from`, `to`), sorting, and joined metadata.
+   - `GET /api/v1/admin/transactions/:id`: Admin detail with joined metadata and full `statusHistory` array read from `audit_logs`.
+5. **Totals and Aggregates Rule:**
+   - Customer and worker performance metrics count `success` transactions only, ignoring `pending` and `failed` rows.
+
+### Commands Run & Real Results
+
+- `cmd /c "npm test"`: Exited code 0 (10 test files passed, 179 tests passed in 66.72s).
+  - `src/tests/transactions.test.ts` (31 tests passed)
+  - `src/tests/workers.test.ts` (23 tests passed)
+  - `src/tests/customers.test.ts` (22 tests passed)
+  - `src/tests/groups.test.ts` (21 tests passed)
+  - `src/tests/constraints.test.ts` (18 tests passed)
+  - `src/tests/otp.test.ts` (24 tests passed)
+  - `src/tests/admin-auth.test.ts` (15 tests passed)
+  - `src/tests/admin-profile.test.ts` (9 tests passed)
+  - `src/tests/auth.service.test.ts` (14 tests passed)
+  - `src/tests/health.test.ts` (2 tests passed)
+- `cmd /c "npm run typecheck"`: Exited code 0 (`tsc --noEmit` passed with 0 errors).
+- `cmd /c "npm run format"`: Exited code 0 (Prettier formatted all source files).
+- `cmd /c "npm run lint"`: Exited code 0 (ESLint passed with 0 errors, 0 warnings).
+- `cmd /c "npm run build"`: Exited code 0 (`tsc` emitted without error).
+
+### Deviations
+
+None.
+
 **Next: awaiting orchestrator instructions.**
+
 
 
 

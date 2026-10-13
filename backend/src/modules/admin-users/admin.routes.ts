@@ -6,6 +6,7 @@ import { adminController } from "./admin.controller.js";
 import { groupRouter } from "../groups/group.routes.js";
 import { customerRouter } from "../customers/customer.routes.js";
 import { workerRouter } from "../workers/worker.routes.js";
+import { adminTransactionRouter } from "../transactions/admin-transaction.routes.js";
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.post(
 router.use("/groups", groupRouter);
 router.use("/customers", customerRouter);
 router.use("/workers", workerRouter);
+router.use("/transactions", adminTransactionRouter);
 
 export const adminRouter = router;

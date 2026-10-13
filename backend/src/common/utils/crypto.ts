@@ -58,3 +58,46 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
 
   return decoded;
 }
+
+export interface ScanTicketPayload {
+  customerId: string;
+  groupId: string;
+  discountPercent: string;
+}
+
+export function signScanTicket(payload: ScanTicketPayload): string {
+  return jwt.sign(
+    {
+      customerId: payload.customerId,
+      groupId: payload.groupId,
+      discountPercent: payload.discountPercent,
+      ticketType: "scan",
+    },
+    env.JWT_ACCESS_SECRET,
+    {
+      expiresIn: "5m", // 5 minutes validity
+      issuer: "fuelpoint-api",
+    },
+  );
+}
+
+export function verifyScanTicket(ticket: string): ScanTicketPayload {
+  const decoded = jwt.verify(ticket, env.JWT_ACCESS_SECRET, {
+    issuer: "fuelpoint-api",
+  }) as jwt.JwtPayload & ScanTicketPayload & { ticketType?: string };
+
+  if (
+    decoded.ticketType !== "scan" ||
+    !decoded.customerId ||
+    !decoded.groupId ||
+    decoded.discountPercent === undefined
+  ) {
+    throw new Error("Invalid scan ticket payload");
+  }
+
+  return {
+    customerId: decoded.customerId,
+    groupId: decoded.groupId,
+    discountPercent: decoded.discountPercent,
+  };
+}
