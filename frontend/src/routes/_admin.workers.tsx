@@ -711,14 +711,27 @@ function WorkersPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="w-phone">Phone number *</Label>
-                    <Input
-                      id="w-phone"
-                      placeholder="9876543210"
-                      value={editingWorker.phone}
-                      onChange={(e) =>
-                        setEditingWorker({ ...editingWorker, phone: e.target.value })
-                      }
-                    />
+                    <div className="flex rounded-md border border-input bg-transparent shadow-sm focus-within:ring-1 focus-within:ring-ring">
+                      <span className="flex items-center px-3 text-sm font-medium text-muted-foreground border-r border-input select-none bg-muted/40 rounded-l-md">
+                        +91
+                      </span>
+                      <input
+                        id="w-phone"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={editingWorker.phone.replace(/^\+91/, "").replace(/\D/g, "")}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setEditingWorker({
+                            ...editingWorker,
+                            phone: digits ? `+91${digits}` : "",
+                          });
+                        }}
+                        className="flex h-9 w-full rounded-r-md bg-transparent px-3 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                        placeholder="9876543210"
+                      />
+                    </div>
                     <p className="text-xs text-muted-foreground">10-digit mobile number</p>
                   </div>
                   <div className="space-y-2">

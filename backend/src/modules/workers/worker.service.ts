@@ -1,6 +1,11 @@
 import { pool } from "../../db/pool.js";
 import { withTransaction } from "../../db/transaction.js";
-import { BadRequestError, ConflictError, NotFoundError } from "../../common/errors/app-error.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "../../common/errors/app-error.js";
 import type { AuthActor } from "../../common/types/common.js";
 import { normalizeIndianPhone } from "../../common/utils/phone.js";
 import { normalizeEmail } from "../../common/utils/email.js";
@@ -443,6 +448,37 @@ export class WorkerService {
     });
 
     return { message: "Worker deleted successfully" };
+  }
+
+  async getProfile(actor: AuthActor): Promise<{
+    id: string;
+    name: string;
+    phone: string;
+    email: string;
+    shift: WorkerShift;
+    status: WorkerStatus;
+    joinedAt: string;
+  }> {
+    const worker = await workerRepository.findById(actor.sub);
+    if (!worker || worker.deleted_at) {
+      throw new ForbiddenError("Worker account is suspended.", "WORKER_SUSPENDED");
+    }
+    if (worker.status === "offline") {
+      throw new ForbiddenError("Worker is currently offline.", "WORKER_NOT_ACTIVE");
+    }
+    if (worker.status !== "active") {
+      throw new ForbiddenError("Worker account is suspended.", "WORKER_SUSPENDED");
+    }
+
+    return {
+      id: worker.id,
+      name: worker.name,
+      phone: worker.phone,
+      email: worker.email,
+      shift: worker.shift,
+      status: worker.status,
+      joinedAt: (worker.joined_at || worker.created_at).toISOString(),
+    };
   }
 }
 

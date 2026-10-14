@@ -53,6 +53,34 @@ export interface RegenerateQrResult {
   regeneratedAt: string;
 }
 
+export interface CustomerProfileResult {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  vehicle: string | null;
+  status: string;
+  groupName: string;
+}
+
+export interface UpdateCustomerProfileDTO {
+  name?: string;
+  email?: string | null;
+  vehicle?: string | null;
+  phone?: unknown;
+}
+
+export interface CustomerUpdateProfileResult {
+  customer: {
+    id: string;
+    name: string;
+    phone: string;
+    email: string | null;
+    vehicle: string | null;
+    status: string;
+  };
+}
+
 export class CustomerMobileService {
   async register(
     dto: RegisterCustomerDTO,
@@ -238,6 +266,117 @@ export class CustomerMobileService {
     return {
       qrToken: updated.qr_token,
       regeneratedAt: updated.updated_at.toISOString(),
+    };
+  }
+
+  async getProfile(actor: AuthActor): Promise<CustomerProfileResult> {
+    const customer = await customerRepository.findById(actor.sub);
+    if (!customer || customer.deleted_at || customer.status !== "active") {
+      throw new ForbiddenError("Customer account is inactive.", "CUSTOMER_INACTIVE");
+    }
+
+    return {
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      vehicle: customer.vehicle,
+      status: customer.status,
+      groupName: customer.group_name || "Standard (Default)",
+    };
+  }
+
+  async updateProfile(
+    actor: AuthActor,
+    dto: UpdateCustomerProfileDTO,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<CustomerUpdateProfileResult> {
+    const customer = await customerRepository.findById(actor.sub);
+    if (!customer || customer.deleted_at || customer.status !== "active") {
+      throw new ForbiddenError("Customer account is inactive.", "CUSTOMER_INACTIVE");
+    }
+
+    let normalizedEmail: string | null | undefined = undefined;
+    if (dto.email !== undefined) {
+      normalizedEmail =
+        dto.email && dto.email.trim() !== "" ? dto.email.trim().toLowerCase() : null;
+    }
+
+    const updated = await withTransaction(pool, async (client) => {
+      const current = await customerRepository.findByIdForUpdate(actor.sub, client);
+      if (!current || current.deleted_at || current.status !== "active") {
+        throw new ForbiddenError("Customer account is inactive.", "CUSTOMER_INACTIVE");
+      }
+
+      if (normalizedEmail && normalizedEmail !== current.email) {
+        const dupEmail = await customerRepository.findByEmail(normalizedEmail, actor.sub, client);
+        if (dupEmail) {
+          throw new ConflictError(
+            "Email address is already in use by another customer.",
+            "EMAIL_ALREADY_EXISTS",
+          );
+        }
+      }
+
+      const row = await customerRepository.update(
+        actor.sub,
+        {
+          name: dto.name !== undefined ? dto.name.trim() : undefined,
+          email: normalizedEmail,
+          vehicle: dto.vehicle !== undefined ? dto.vehicle?.trim() || null : undefined,
+        },
+        client,
+      );
+
+      // Diff for audit log (changed fields only, no secrets)
+      const oldValue: Record<string, unknown> = {};
+      const newValue: Record<string, unknown> = {};
+
+      if (dto.name !== undefined && dto.name.trim() !== current.name) {
+        oldValue.name = current.name;
+        newValue.name = row.name;
+      }
+      if (normalizedEmail !== undefined && normalizedEmail !== current.email) {
+        oldValue.email = current.email;
+        newValue.email = row.email;
+      }
+      const newVeh = dto.vehicle !== undefined ? dto.vehicle?.trim() || null : undefined;
+      if (dto.vehicle !== undefined && newVeh !== current.vehicle) {
+        oldValue.vehicle = current.vehicle;
+        newValue.vehicle = row.vehicle;
+      }
+
+      if (Object.keys(newValue).length > 0) {
+        await auditService.recordInTx(
+          {
+            actorType: "customer",
+            actorId: actor.sub,
+            actorName: row.name,
+            action: "customer.updated",
+            entityType: "customer",
+            entityId: actor.sub,
+            oldValue,
+            newValue,
+            ipAddress: ip,
+            userAgent,
+          },
+          client,
+        );
+      }
+
+      return row;
+    });
+
+    return {
+      customer: {
+        id: updated.id,
+        name: updated.name,
+        phone: updated.phone,
+        email: updated.email,
+        vehicle: updated.vehicle,
+        status: updated.status,
+      },
     };
   }
 }

@@ -34,6 +34,28 @@ export class CustomerMobileController {
       next(err);
     }
   };
+
+  getProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const actor = req.actor!;
+      const result = await customerMobileService.getProfile(actor);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const actor = req.actor!;
+      const ip = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const userAgent = req.headers["user-agent"];
+      const result = await customerMobileService.updateProfile(actor, req.body, ip, userAgent);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
 }
 
 export const customerMobileController = new CustomerMobileController();

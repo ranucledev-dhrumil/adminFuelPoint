@@ -1571,3 +1571,125 @@ None.
 None.
 
 ---
+
+## Task 22: User Manual Testing UI/UX Fixes & Reports Enhancements
+
+**Date:** 2026-10-13
+
+### Scope & Summary of Changes
+
+Addressed all user manual testing feedback and UX refinements:
+1. **Mobile Phone Input (+91 Prefix & 10 Digits):**
+   - Enforced 10 numeric digits only across customer, worker, and admin profile forms (`_admin.customers.tsx`, `_admin.workers.tsx`, `_admin.profile.tsx`).
+   - Added read-only `+91` prefix addon block with clean input styling.
+2. **Reports Filters & CSV Export:**
+   - Added search filter (`q`) for customer name, worker name, phone, and transaction ID across reports UI and backend transaction listing (`admin-transaction.routes.ts`, `transaction.service.ts`, `transaction.repository.ts`).
+   - Integrated active filters (`category`, `from`, `to`, `status`, `q`) into CSV export endpoint (`reports.repository.ts`, `reports.service.ts`, `reports.controller.ts`, `reports.routes.ts`).
+3. **Dark Theme Shadow & Chart Hover Cleanup:**
+   - Removed hardcoded `#cccccc` shadow; introduced `--shadow-card` and `--shadow-elevated` CSS variables with subtle alpha dark shadows in `.dark` mode (`styles.css`).
+   - Fixed worker scanning activity chart tooltip styling and removed harsh hover highlight band cursor in `HorizontalBarChart` (`charts.tsx`).
+4. **Header / Logo Navigation:**
+   - Wrapped FuelPoint logo and brand text with navigation link pointing to `/dashboard` (`AdminShell.tsx`).
+5. **Group Discount Input "012" Bug:**
+   - Controlled discount percent input as string/number to ensure backspacing clears zero and entering "12" does not produce "012" (`_admin.groups.tsx`).
+6. **Customer Group Assignment Toast:**
+   - Updated toast message format to `"<Customer Name> assigned to <Group Name>"` across customer and group views (`_admin.customers.tsx`, `_admin.groups.tsx`).
+7. **Currency Formatting:**
+   - Standardized `formatCurrency` to use `toLocaleString("en-IN")` with ₹ symbol and dynamic fraction digits (omitted for whole integers, 2 decimals for fractions).
+8. **Reports Filter Metrics & CSV Fixes:**
+   - Fixed PostgreSQL enum cast error (`operator does not exist: fuel_type ~~* text`) by explicitly casting `t.fuel_type::text` in ILIKE queries across both reports export and transaction repository.
+   - Updated `getTransactionsSummaryMetrics` and `summaryQuery` to dynamically filter by active status (`status`) and search query (`q`), allowing KPI stat cards to reflect pending, failed, or searched transactions instead of hardcoded `status = 'success'`.
+   - Updated `handleExportCsv` and backend `getExportTransactions` so that selecting "All statuses" (`status=all`) exports all matching transactions (including pending and failed) without restricting to success-only.
+
+### Files Changed
+
+- `frontend/src/styles.css`
+- `frontend/src/components/admin/charts.tsx`
+- `frontend/src/components/admin/AdminShell.tsx`
+- `frontend/src/services/types.ts`
+- `frontend/src/services/adminService.ts`
+- `frontend/src/routes/_admin.reports.tsx`
+- `frontend/src/routes/_admin.groups.tsx`
+- `frontend/src/routes/_admin.customers.tsx`
+- `frontend/src/routes/_admin.workers.tsx`
+- `frontend/src/routes/_admin.profile.tsx`
+- `backend/src/modules/reports/reports.repository.ts`
+- `backend/src/modules/reports/reports.service.ts`
+- `backend/src/modules/reports/reports.controller.ts`
+- `backend/src/modules/reports/reports.routes.ts`
+- `backend/src/modules/transactions/admin-transaction.routes.ts`
+- `backend/src/modules/transactions/transaction.service.ts`
+- `backend/src/modules/transactions/transaction.repository.ts`
+- `docs/STATUS.md`
+
+### Quality Gate Results
+
+| Workspace | Command | Result / Real Output |
+|---|---|---|
+| `frontend` | `npm run typecheck` | **PASS** — `tsc --noEmit` exited code 0 (0 errors) |
+| `frontend` | `npm run lint` | **PASS** — `eslint .` exited code 0 (0 errors, 7 Fast Refresh warnings) |
+| `frontend` | `npm run build` | **PASS** — `vite build` completed in 3.47s (0 errors) |
+| `backend` | `npm run typecheck` | **PASS** — `tsc --noEmit` exited code 0 (0 errors) |
+| `backend` | `npm run lint` | **PASS** — `eslint .` exited code 0 (0 errors, 0 warnings) |
+| `backend` | `npm test` | Deferred to user per request |
+
+### Deviations
+
+None.
+
+Next: awaiting orchestrator instructions.
+
+---
+
+## Task 23: Add the Three Missing Mobile Profile Endpoints
+
+**Date:** 2026-10-14
+
+### Scope & Summary of Changes
+
+Implemented the three missing mobile profile endpoints defined in `docs/api-proposal.md`:
+1. **`GET /api/v1/customer/profile`:**
+   - Authenticated with Customer JWT (`requireRole('customer')`).
+   - Validates live customer status against database; returns `403 FORBIDDEN` (`CUSTOMER_INACTIVE`) if inactive or soft-deleted.
+   - Returns `{ customer: { id, name, phone, email, vehicle, status, groupName } }`.
+2. **`PATCH /api/v1/customer/profile`:**
+   - Authenticated with Customer JWT (`requireRole('customer')`).
+   - Validates live customer status against database; returns `403 FORBIDDEN` (`CUSTOMER_INACTIVE`) if inactive or soft-deleted.
+   - Accepts `name`, `email`, and `vehicle` (all optional, at least one required).
+   - Phone is strictly immutable (schema strips or rejects mutations).
+   - Lowercases email; returns `409 CONFLICT` (`EMAIL_ALREADY_EXISTS`) if email is taken by another customer.
+   - Executes inside a transaction, writing a `customer.updated` audit log capturing changed fields only.
+   - Returns `{ customer: { id, name, phone, email, vehicle, status, groupName } }`.
+3. **`GET /api/v1/worker/profile`:**
+   - Authenticated with Worker JWT (`requireRole('worker')`).
+   - Read-only; checks live status and returns `403 FORBIDDEN` (`WORKER_INACTIVE`) if worker is `offline` or `suspended`.
+   - Returns `{ worker: { id, name, phone, email, shift, status, joinedAt } }` where `joinedAt` maps to `created_at`.
+4. **Validation Middleware Support:**
+   - Updated `RequestValidationSchema` and `validate()` middleware to accept `ZodTypeAny` instead of `AnyZodObject`, enabling `.refine()` schemas on request bodies (e.g., requiring at least one field to update).
+
+### Files Changed
+
+- `backend/src/common/middleware/validate.ts`
+- `backend/src/modules/customers/customer-mobile.routes.ts`
+- `backend/src/modules/customers/customer-mobile.controller.ts`
+- `backend/src/modules/customers/customer-mobile.service.ts`
+- `backend/src/modules/transactions/worker-transaction.routes.ts`
+- `backend/src/modules/workers/worker.controller.ts`
+- `backend/src/modules/workers/worker.service.ts`
+- `backend/src/tests/mobile-profile.test.ts` (created)
+- `docs/STATUS.md`
+
+### Quality Gate Results
+
+| Workspace | Command | Result / Real Output |
+|---|---|---|
+| `backend` | `npm run typecheck` | **PASS** — `tsc --noEmit` exited code 0 (0 errors) |
+| `backend` | `npm run lint` | **PASS** — `eslint .` exited code 0 (0 errors, 0 warnings) |
+| `backend` | `npm test` | **PASS** — 13 test files passed, 246 tests passed in 255.36s |
+
+### Deviations
+
+None.
+
+Next: awaiting orchestrator instructions.
+

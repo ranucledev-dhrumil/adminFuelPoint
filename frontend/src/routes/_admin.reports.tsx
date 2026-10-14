@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,6 +123,7 @@ function ReportsPage() {
   const [txStatusFilter, setTxStatusFilter] = useState<"all" | "pending" | "success" | "failed">(
     "all",
   );
+  const [txSearchQuery, setTxSearchQuery] = useState("");
 
   // Pagination for other tabs
   const [custPage, setCustPage] = useState(1);
@@ -137,8 +139,26 @@ function ReportsPage() {
 
   // Summary Metrics Query
   const summaryQuery = useQuery({
-    queryKey: ["admin", "reports", "summary", category, fromStr, toStr],
-    queryFn: () => reportsApi.getSummary(category, fromStr, toStr),
+    queryKey: [
+      "admin",
+      "reports",
+      "summary",
+      category,
+      fromStr,
+      toStr,
+      category === "transactions" || category === "discount" ? txStatusFilter : undefined,
+      category === "transactions" || category === "discount" ? txSearchQuery.trim() : undefined,
+    ],
+    queryFn: () =>
+      reportsApi.getSummary(
+        category,
+        fromStr,
+        toStr,
+        category === "transactions" || category === "discount" ? txStatusFilter : undefined,
+        category === "transactions" || category === "discount"
+          ? txSearchQuery.trim() || undefined
+          : undefined,
+      ),
   });
 
   // Transactions Query
@@ -154,6 +174,7 @@ function ReportsPage() {
         from: fromStr,
         to: toStr,
         status: txStatusFilter === "all" ? undefined : txStatusFilter,
+        q: txSearchQuery.trim() || undefined,
       },
     ],
     queryFn: () =>
@@ -165,6 +186,7 @@ function ReportsPage() {
         from: fromStr,
         to: toStr,
         status: txStatusFilter === "all" ? undefined : txStatusFilter,
+        q: txSearchQuery.trim() || undefined,
       }),
     enabled: category === "transactions" || category === "discount",
   });
@@ -229,7 +251,15 @@ function ReportsPage() {
   const handleExportCsv = async () => {
     try {
       setIsExporting(true);
-      await reportsApi.exportCsv(category, fromStr, toStr);
+      await reportsApi.exportCsv(
+        category,
+        fromStr,
+        toStr,
+        category === "transactions" || category === "discount" ? txStatusFilter : undefined,
+        category === "transactions" || category === "discount"
+          ? txSearchQuery.trim() || undefined
+          : undefined,
+      );
       toast.success("CSV export downloaded successfully");
     } catch (err) {
       toast.error("Failed to export CSV report", {
@@ -389,15 +419,14 @@ function ReportsPage() {
       {/* KPI Stat Cards */}
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summaryMetrics.map((m) => {
-          let formattedValue = String(m.value);
-          if (typeof m.value === "number") {
-            formattedValue =
-              m.label.toLowerCase().includes("revenue") ||
-              m.label.toLowerCase().includes("discount") ||
-              m.label.toLowerCase().includes("ticket")
-                ? formatCurrency(m.value)
-                : formatNumber(m.value);
-          }
+          const lbl = m.label.toLowerCase();
+          const isCurrency =
+            lbl.includes("revenue") ||
+            lbl.includes("discount") ||
+            lbl.includes("ticket") ||
+            lbl.includes("spend") ||
+            lbl.includes("amount");
+          const formattedValue = isCurrency ? formatCurrency(m.value) : formatNumber(m.value);
           return <StatCard key={m.label} label={m.label} value={formattedValue} />;
         })}
       </div>
@@ -455,7 +484,21 @@ function ReportsPage() {
           )}
 
           {(category === "transactions" || category === "discount") && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 py-1 shadow-sm focus-within:ring-1 focus-within:ring-ring">
+                <Search className="size-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search customer, worker, txn…"
+                  value={txSearchQuery}
+                  onChange={(e) => {
+                    setTxSearchQuery(e.target.value);
+                    setTxPage(1);
+                  }}
+                  className="w-48 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+
               <select
                 aria-label="Filter transactions by status"
                 value={txStatusFilter}

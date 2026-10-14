@@ -71,6 +71,7 @@ export interface AdminListTransactionsParams {
   groupId?: string;
   from?: Date;
   to?: Date;
+  q?: string;
 }
 
 export interface WorkerListTransactionsParams {
@@ -282,6 +283,13 @@ export class TransactionRepository {
     if (params.to) {
       conditions.push(`t.submitted_at <= $${idx++}`);
       values.push(params.to);
+    }
+    if (params.q) {
+      conditions.push(
+        `(c.name ILIKE $${idx} OR w.name ILIKE $${idx} OR c.phone ILIKE $${idx} OR w.phone ILIKE $${idx} OR t.id::text ILIKE $${idx} OR t.fuel_type::text ILIKE $${idx})`,
+      );
+      values.push(`%${params.q}%`);
+      idx++;
     }
 
     const sortColumnMap: Record<string, string> = {

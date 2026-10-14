@@ -27,15 +27,15 @@ const axis = {
 
 const tooltipStyle = {
   contentStyle: {
-    borderRadius: 12,
+    borderRadius: 8,
     border: "1px solid var(--border)",
-    background: "var(--card)",
-    color: "var(--foreground)",
+    background: "var(--popover)",
+    color: "var(--popover-foreground)",
     fontSize: 12,
-    boxShadow: "var(--shadow-card)",
+    boxShadow: "0 4px 14px rgba(0, 0, 0, 0.35)",
   },
   itemStyle: {
-    color: "var(--foreground)",
+    color: "var(--popover-foreground)",
   },
 };
 
@@ -80,6 +80,7 @@ export function TrendAreaChart({
         <YAxis {...axis} width={48} />
         <Tooltip
           {...tooltipStyle}
+          cursor={{ stroke: "var(--border)", strokeDasharray: "3 3" }}
           formatter={(v: number) => (valueFormatter ? valueFormatter(v) : v)}
         />
         <Area
@@ -109,7 +110,7 @@ export function MultiLineChart({
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
         <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={24} />
         <YAxis {...axis} width={48} />
-        <Tooltip {...tooltipStyle} />
+        <Tooltip {...tooltipStyle} cursor={{ stroke: "var(--border)", strokeDasharray: "3 3" }} />
         <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
         {series.map((s) => (
           <Line
@@ -167,6 +168,7 @@ export function HorizontalBarChart({
         <YAxis type="category" dataKey={categoryKey} {...axis} width={yAxisWidth} />
         <Tooltip
           {...tooltipStyle}
+          cursor={{ fill: "var(--muted)", opacity: 0.25 }}
           formatter={(v: number) => [
             valueFormatter ? valueFormatter(v) : v.toLocaleString("en-IN"),
             "",

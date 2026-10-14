@@ -556,11 +556,15 @@ export const reportsApi = {
     category: "transactions" | "discount" | "customers" | "workers" | "groups",
     from?: string,
     to?: string,
+    status?: string,
+    q?: string,
   ): Promise<ReportsSummary> => {
     const searchParams = new URLSearchParams();
     searchParams.set("category", category);
     if (from) searchParams.set("from", from);
     if (to) searchParams.set("to", to);
+    if (status) searchParams.set("status", status);
+    if (q && q.trim()) searchParams.set("q", q.trim());
     const res = await apiRequest<{
       category: "transactions" | "discount" | "customers" | "workers" | "groups";
       range: { from: string; to: string };
@@ -587,11 +591,15 @@ export const reportsApi = {
     category: "transactions" | "discount" | "customers" | "workers" | "groups",
     from?: string,
     to?: string,
+    status?: string,
+    q?: string,
   ): Promise<void> => {
     const searchParams = new URLSearchParams();
     searchParams.set("category", category);
     if (from) searchParams.set("from", from);
     if (to) searchParams.set("to", to);
+    if (status) searchParams.set("status", status);
+    if (q && q.trim()) searchParams.set("q", q.trim());
     searchParams.set("format", "csv");
 
     const blob = await apiRequestBlob(`/admin/reports/export?${searchParams.toString()}`);
@@ -616,6 +624,7 @@ export const transactionsApi = {
     if (params.groupId) searchParams.set("groupId", params.groupId);
     if (params.from) searchParams.set("from", params.from);
     if (params.to) searchParams.set("to", params.to);
+    if (params.q) searchParams.set("q", params.q.trim());
 
     const qs = searchParams.toString();
     const res = await apiRequest<{ data: unknown[]; pagination: PaginationMeta }>(
@@ -809,8 +818,15 @@ export const searchApi = {
 
 /* ---------- formatting helpers ---------- */
 
-export const formatCurrency = (value: number | string | null | undefined) =>
-  `₹${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
+export const formatCurrency = (value: number | string | null | undefined) => {
+  const num = Number(value);
+  if (isNaN(num)) return "₹0";
+  const hasDecimals = num % 1 !== 0;
+  return `₹${num.toLocaleString("en-IN", {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`;
+};
 
 export const formatNumber = (value: number | string | null | undefined) =>
   (Number(value) || 0).toLocaleString("en-IN");

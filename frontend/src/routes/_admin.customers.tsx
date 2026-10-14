@@ -249,15 +249,29 @@ function CustomersPage() {
   });
 
   const assignGroupMutation = useMutation({
-    mutationFn: ({ id, groupId }: { id: string; groupId: string }) =>
-      customersApi.assignGroup(id, groupId),
-    onSuccess: (updated) => {
+    mutationFn: ({
+      id,
+      groupId,
+      customerName,
+      groupName,
+    }: {
+      id: string;
+      groupId: string;
+      customerName: string;
+      groupName: string;
+    }) =>
+      customersApi.assignGroup(id, groupId).then((updated) => ({
+        ...updated,
+        customerName,
+        groupName: groupName || updated.groupName,
+      })),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
-      if (selectedId === updated.id) {
+      if (selectedId === data.id) {
         queryClient.invalidateQueries({ queryKey: ["admin", "customer", selectedId] });
       }
-      toast.success("Group assigned", { description: updated.name });
+      toast.success(`${data.customerName} assigned to ${data.groupName || "group"}`);
     },
     onError: (err: Error) => {
       toast.error("Failed to assign group", { description: err.message });
@@ -650,9 +664,12 @@ function CustomersPage() {
                   <Select
                     value={selectedCustomer.groupId}
                     onValueChange={(v) => {
+                      const targetGroup = groups.find((g) => g.id === v);
                       assignGroupMutation.mutate({
                         id: selectedCustomer.id,
                         groupId: v,
+                        customerName: selectedCustomer.name,
+                        groupName: targetGroup?.name || "",
                       });
                     }}
                   >
@@ -757,14 +774,27 @@ function CustomersPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="c-phone">Phone number *</Label>
-                    <Input
-                      id="c-phone"
-                      value={editingCustomer.phone}
-                      onChange={(e) =>
-                        setEditingCustomer({ ...editingCustomer, phone: e.target.value })
-                      }
-                      placeholder="9876543210"
-                    />
+                    <div className="flex rounded-md border border-input bg-transparent shadow-sm focus-within:ring-1 focus-within:ring-ring">
+                      <span className="flex items-center px-3 text-sm font-medium text-muted-foreground border-r border-input select-none bg-muted/40 rounded-l-md">
+                        +91
+                      </span>
+                      <input
+                        id="c-phone"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={editingCustomer.phone.replace(/^\+91/, "").replace(/\D/g, "")}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setEditingCustomer({
+                            ...editingCustomer,
+                            phone: digits ? `+91${digits}` : "",
+                          });
+                        }}
+                        className="flex h-9 w-full rounded-r-md bg-transparent px-3 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                        placeholder="9876543210"
+                      />
+                    </div>
                     <p className="text-xs text-muted-foreground">10-digit Indian mobile number</p>
                   </div>
                   <div className="space-y-2">

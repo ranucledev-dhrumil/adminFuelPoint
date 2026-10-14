@@ -75,6 +75,16 @@ export class WorkerController {
       next(err);
     }
   };
+
+  getProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const actor = req.actor!;
+      const result = await workerService.getProfile(actor);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
 }
 
 export const workerController = new WorkerController();

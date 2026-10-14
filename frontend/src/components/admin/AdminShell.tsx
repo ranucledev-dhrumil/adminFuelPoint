@@ -159,8 +159,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
             isCollapsed ? "flex-col gap-4 px-0" : "px-6",
           )}
         >
-          <div className={cn("flex items-center gap-3", isCollapsed && "justify-center")}>
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary/15 text-sidebar-primary ring-1 ring-white/15">
+          <Link
+            to="/dashboard"
+            onClick={() => setOpen(false)}
+            className={cn(
+              "flex items-center gap-3 cursor-pointer group outline-none select-none transition-opacity hover:opacity-90",
+              isCollapsed && "justify-center",
+            )}
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary/15 text-sidebar-primary ring-1 ring-white/15 group-hover:ring-sidebar-primary/40 transition-all">
               <Fuel className="size-5" />
             </span>
             {!isCollapsed && (
@@ -169,7 +176,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 <p className="text-xs text-muted-foreground truncate">Admin Console</p>
               </div>
             )}
-          </div>
+          </Link>
 
           {!isCollapsed && (
             <button

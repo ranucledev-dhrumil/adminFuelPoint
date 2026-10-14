@@ -443,6 +443,7 @@ export class TransactionService {
     groupId?: string;
     from?: string;
     to?: string;
+    q?: string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
@@ -463,6 +464,7 @@ export class TransactionService {
       groupId: query.groupId,
       from: fromDate,
       to: toDate,
+      q: query.q?.trim() || undefined,
     });
 
     const totalPages = Math.ceil(total / limit);

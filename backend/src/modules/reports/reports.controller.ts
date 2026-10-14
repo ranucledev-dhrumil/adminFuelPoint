@@ -48,8 +48,10 @@ export class ReportsController {
       const category = req.query.category as ReportCategory;
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
+      const status = req.query.status as "all" | "pending" | "success" | "failed" | undefined;
+      const q = req.query.q as string | undefined;
 
-      const result = await reportsService.getReportsSummary(category, from, to);
+      const result = await reportsService.getReportsSummary(category, from, to, status, q);
       res.status(200).json(result);
     } catch (err) {
       next(err);
@@ -61,8 +63,10 @@ export class ReportsController {
       const category = req.query.category as ReportCategory;
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
+      const status = req.query.status as string | undefined;
+      const q = req.query.q as string | undefined;
 
-      await reportsService.exportCsvReport(category, from, to, res);
+      await reportsService.exportCsvReport(category, from, to, res, status, q);
     } catch (err) {
       next(err);
     }

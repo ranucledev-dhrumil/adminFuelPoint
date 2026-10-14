@@ -23,7 +23,36 @@ const customerListQuerySchema = z.object({
   order: z.enum(["asc", "desc", "ASC", "DESC"]).optional().default("desc"),
 });
 
+const updateProfileSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name cannot be empty").optional(),
+    email: z.string().trim().email("Invalid email format").nullable().optional().or(z.literal("")),
+    vehicle: z.string().trim().nullable().optional(),
+    phone: z.any().optional(),
+  })
+  .refine(
+    (data) => data.name !== undefined || data.email !== undefined || data.vehicle !== undefined,
+    {
+      message: "At least one field (name, email, vehicle) is required to update",
+    },
+  );
+
 router.post("/register", validate(registerSchema), customerMobileController.register);
+
+router.get(
+  "/profile",
+  authMiddleware,
+  requireRole("customer"),
+  customerMobileController.getProfile,
+);
+
+router.patch(
+  "/profile",
+  authMiddleware,
+  requireRole("customer"),
+  validate(updateProfileSchema),
+  customerMobileController.updateProfile,
+);
 
 router.get("/qr", authMiddleware, requireRole("customer"), customerMobileController.getQr);
 

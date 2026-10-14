@@ -54,8 +54,8 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --shadow-card: 0 1px 2px #cccccc, 0 8px 24px -12px #cccccc;
-  --shadow-elevated: 0 2px 4px #cccccc, 0 18px 40px -16px #cccccc;
+  --shadow-card: var(--shadow-card);
+  --shadow-elevated: var(--shadow-elevated);
 }
 
 :root {
@@ -101,6 +101,8 @@
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #0b4c8c;
   --sidebar-ring: #249adf;
+  --shadow-card: 0 1px 3px 0 rgba(11, 42, 63, 0.06), 0 1px 2px -1px rgba(11, 42, 63, 0.04);
+  --shadow-elevated: 0 4px 14px -2px rgba(11, 42, 63, 0.10), 0 2px 6px -1px rgba(11, 42, 63, 0.06);
 }
 
 .dark {
@@ -139,6 +141,8 @@
   --chart-4: #9fb3c4;
   --chart-5: #35c88a;
   --chart-6: #fbbf66;
+  --shadow-card: 0 2px 8px 0 rgba(0, 0, 0, 0.45);
+  --shadow-elevated: 0 8px 24px -4px rgba(0, 0, 0, 0.60);
 }
 
 @layer base {

@@ -27,6 +27,7 @@ const adminListQuerySchema = z.object({
   groupId: z.string().uuid("Invalid group ID format").optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  q: z.string().trim().optional(),
 });
 
 const adminUpdateStatusSchema = z.object({

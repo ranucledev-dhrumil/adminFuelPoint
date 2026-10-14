@@ -198,12 +198,24 @@ function ProfilePage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="p-phone">Phone number</Label>
-                <Input
-                  id="p-phone"
-                  placeholder="+91 98765 43210"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                />
+                <div className="flex rounded-md border border-input bg-transparent shadow-sm focus-within:ring-1 focus-within:ring-ring">
+                  <span className="flex items-center px-3 text-sm font-medium text-muted-foreground border-r border-input select-none bg-muted/40 rounded-l-md">
+                    +91
+                  </span>
+                  <input
+                    id="p-phone"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={form.phone.replace(/^\+91/, "").replace(/\D/g, "")}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      setForm({ ...form, phone: digits ? `+91${digits}` : "" });
+                    }}
+                    className="flex h-9 w-full rounded-r-md bg-transparent px-3 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                    placeholder="9876543210"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="p-loc">Location</Label>

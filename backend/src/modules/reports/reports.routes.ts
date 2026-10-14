@@ -37,6 +37,8 @@ const summaryQuerySchema = z.object({
   }),
   from: z.string().optional(),
   to: z.string().optional(),
+  status: z.enum(["all", "pending", "success", "failed"]).optional(),
+  q: z.string().optional(),
 });
 
 const exportQuerySchema = z.object({
@@ -46,6 +48,8 @@ const exportQuerySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   format: z.enum(["csv", "json"]).optional().default("csv"),
+  status: z.enum(["all", "pending", "success", "failed"]).optional(),
+  q: z.string().optional(),
 });
 
 reports.get(

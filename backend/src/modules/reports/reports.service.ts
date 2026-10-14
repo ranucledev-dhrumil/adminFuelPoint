@@ -126,7 +126,13 @@ export class ReportsService {
     };
   }
 
-  async getReportsSummary(category: ReportCategory, fromStr?: string, toStr?: string) {
+  async getReportsSummary(
+    category: ReportCategory,
+    fromStr?: string,
+    toStr?: string,
+    status?: "all" | "pending" | "success" | "failed",
+    q?: string,
+  ) {
     const validCategories = ["transactions", "discount", "customers", "workers", "groups"];
     if (!validCategories.includes(category)) {
       throw new BadRequestError("Invalid report category.", "INVALID_CATEGORY");
@@ -180,7 +186,12 @@ export class ReportsService {
     let metrics: MetricItem[] = [];
 
     if (category === "transactions") {
-      const agg = await reportsRepository.getTransactionsSummaryMetrics(fromDate, toDate);
+      const agg = await reportsRepository.getTransactionsSummaryMetrics(
+        fromDate,
+        toDate,
+        status,
+        q,
+      );
       const txCount = Number(agg.count || 0);
       const revenue = new Decimal(agg.revenue || 0);
       const litres = new Decimal(agg.litres || 0);
@@ -193,7 +204,12 @@ export class ReportsService {
         { label: "Avg ticket", value: avgTicket },
       ];
     } else if (category === "discount") {
-      const agg = await reportsRepository.getTransactionsSummaryMetrics(fromDate, toDate);
+      const agg = await reportsRepository.getTransactionsSummaryMetrics(
+        fromDate,
+        toDate,
+        status,
+        q,
+      );
       const txCount = Number(agg.count || 0);
       const revenue = new Decimal(agg.revenue || 0);
       const discount = new Decimal(agg.discount || 0);
@@ -254,6 +270,8 @@ export class ReportsService {
     fromStr: string | undefined,
     toStr: string | undefined,
     res: Response,
+    status?: string | undefined,
+    q?: string | undefined,
   ): Promise<void> {
     const validCategories = ["transactions", "discount", "customers", "workers", "groups"];
     if (!validCategories.includes(category)) {
@@ -275,7 +293,7 @@ export class ReportsService {
     res.setHeader("Transfer-Encoding", "chunked");
 
     if (category === "transactions" || category === "discount") {
-      const rows = await reportsRepository.getExportTransactions(fromDate, toDate);
+      const rows = await reportsRepository.getExportTransactions(fromDate, toDate, status, q);
       res.write("ID,Date,Customer,Worker,Fuel,Litres,Amount,DiscountPercent,Discount\n");
       for (const r of rows) {
         const line =

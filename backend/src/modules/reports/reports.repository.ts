@@ -219,21 +219,41 @@ export class ReportsRepository {
   async getTransactionsSummaryMetrics(
     from: Date,
     to: Date,
+    status?: "all" | "pending" | "success" | "failed" | undefined,
+    q?: string | undefined,
     client: pg.Pool | pg.PoolClient = pool,
   ) {
+    const conditions: string[] = ["t.submitted_at >= $1", "t.submitted_at <= $2"];
+    const params: unknown[] = [from, to];
+
+    if (status && status !== "all") {
+      params.push(status);
+      conditions.push(`t.status = $${params.length}`);
+    } else if (!status) {
+      conditions.push("t.status = 'success'");
+    }
+
+    if (q && q.trim()) {
+      params.push(`%${q.trim()}%`);
+      const idx = params.length;
+      conditions.push(
+        `(c.name ILIKE $${idx} OR w.name ILIKE $${idx} OR c.phone ILIKE $${idx} OR w.phone ILIKE $${idx} OR t.id::text ILIKE $${idx} OR t.fuel_type::text ILIKE $${idx})`,
+      );
+    }
+
     const query = `
       SELECT
-        COUNT(*) AS count,
-        COALESCE(SUM(amount), 0) AS revenue,
-        COALESCE(SUM(litres), 0) AS litres,
-        COALESCE(SUM(discount_amount), 0) AS discount,
-        COUNT(*) FILTER (WHERE discount_amount > 0) AS discounted_scans
-      FROM transactions
-      WHERE status = 'success'
-        AND submitted_at >= $1
-        AND submitted_at <= $2
+        COUNT(t.id) AS count,
+        COALESCE(SUM(t.amount), 0) AS revenue,
+        COALESCE(SUM(t.litres), 0) AS litres,
+        COALESCE(SUM(t.discount_amount), 0) AS discount,
+        COUNT(t.id) FILTER (WHERE t.discount_amount > 0) AS discounted_scans
+      FROM transactions t
+      LEFT JOIN customers c ON c.id = t.customer_id
+      LEFT JOIN workers w ON w.id = t.worker_id
+      WHERE ${conditions.join(" AND ")}
     `;
-    const res = await client.query(query, [from, to]);
+    const res = await client.query(query, params);
     return res.rows[0];
   }
 
@@ -268,7 +288,31 @@ export class ReportsRepository {
     return Number(res.rows[0]?.count || 0);
   }
 
-  async getExportTransactions(from: Date, to: Date, client: pg.Pool | pg.PoolClient = pool) {
+  async getExportTransactions(
+    from: Date,
+    to: Date,
+    status?: string | undefined,
+    q?: string | undefined,
+    client: pg.Pool | pg.PoolClient = pool,
+  ) {
+    const conditions: string[] = ["t.submitted_at >= $1", "t.submitted_at <= $2"];
+    const params: unknown[] = [from, to];
+
+    if (status && status !== "all") {
+      params.push(status);
+      conditions.push(`t.status = $${params.length}`);
+    } else if (!status) {
+      conditions.push("t.status = 'success'");
+    }
+
+    if (q && q.trim()) {
+      params.push(`%${q.trim()}%`);
+      const idx = params.length;
+      conditions.push(
+        `(c.name ILIKE $${idx} OR w.name ILIKE $${idx} OR c.phone ILIKE $${idx} OR w.phone ILIKE $${idx} OR t.id::text ILIKE $${idx} OR t.fuel_type::text ILIKE $${idx})`,
+      );
+    }
+
     const query = `
       SELECT 
         t.id,
@@ -283,13 +327,11 @@ export class ReportsRepository {
       FROM transactions t
       JOIN customers c ON c.id = t.customer_id
       JOIN workers w ON w.id = t.worker_id
-      WHERE t.status = 'success'
-        AND t.submitted_at >= $1
-        AND t.submitted_at <= $2
+      WHERE ${conditions.join(" AND ")}
       ORDER BY t.submitted_at ASC
       LIMIT 100000
     `;
-    const res = await client.query(query, [from, to]);
+    const res = await client.query(query, params);
     return res.rows;
   }
 

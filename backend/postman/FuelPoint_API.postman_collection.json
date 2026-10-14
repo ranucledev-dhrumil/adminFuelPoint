@@ -1,31 +1,47 @@
 {
   "info": {
-    "_postman_id": "fuelpoint-api-collection-v1",
     "name": "FuelPoint API",
-    "description": "Comprehensive Postman collection for FuelPoint Loyalty & Fleet Management API. Covers Admin Web Portal, Worker Mobile App, Customer Mobile App, Authentication, and Health checks.",
+    "description": "FuelPoint API. Run the folders in order, clicking Send on each request (the OTP steps need a code from the server terminal; see the request descriptions). Before the first run set adminPassword in the environment to your seed admin password. Access tokens last 15 minutes: log in again if you get 401. OTP limits: 60 s between requests, 5 per hour per phone number.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "01. Auth",
+      "name": "00. Health",
       "item": [
         {
-          "name": "Admin Login",
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.accessToken) {",
-                  "    pm.environment.set('adminToken', res.accessToken);",
-                  "    console.log('Saved adminToken');",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
               }
             }
-          ],
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01. Admin Login",
+      "item": [
+        {
+          "name": "Admin Login",
           "request": {
             "method": "POST",
             "header": [
@@ -34,164 +50,44 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@fuelpoint.local\",\n  \"password\": \"AdminPass123!\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/auth/admin/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "admin", "login"]
-            }
-          }
-        },
-        {
-          "name": "Refresh Token",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/auth/refresh",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "refresh"]
-            }
-          }
-        },
-        {
-          "name": "Logout",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "login"
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"allDevices\": false\n}",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": {
-              "raw": "{{baseUrl}}/auth/logout",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "logout"]
-            }
-          }
-        },
-        {
-          "name": "Request OTP (Register / Login)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"destination\": \"+919876543210\",\n  \"purpose\": \"login\",\n  \"channel\": \"sms\",\n  \"actor_type\": \"worker\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/otp/request",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "otp", "request"]
-            }
-          }
-        },
-        {
-          "name": "Verify OTP (Worker Login)",
+            "description": "Set the environment variable adminPassword to your SEED_ADMIN_INITIAL_PASSWORD from backend/.env first. The refresh cookie is stored by Postman automatically."
+          },
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.accessToken) {",
-                  "    if (res.actor && res.actor.role === 'worker') {",
-                  "        pm.environment.set('workerToken', res.accessToken);",
-                  "    } else {",
-                  "        pm.environment.set('customerToken', res.accessToken);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.accessToken) { pm.environment.set('adminToken', res.accessToken); }"
+                ]
               }
             }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"destination\": \"+919876543210\",\n  \"code\": \"123456\",\n  \"actor_type\": \"worker\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/otp/verify",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "otp", "verify"]
-            }
-          }
+          ]
         },
         {
-          "name": "Forgot Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@fuelpoint.local\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/admin/forgot-password",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "admin", "forgot-password"]
-            }
-          }
-        },
-        {
-          "name": "Reset Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"token\": \"sample-reset-token\",\n  \"newPassword\": \"NewAdminPass123!\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/admin/reset-password",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "admin", "reset-password"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "02. Admin Profile",
-      "item": [
-        {
-          "name": "Get Profile",
+          "name": "Admin Profile (Get)",
           "request": {
             "method": "GET",
             "header": [
@@ -202,106 +98,34 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/profile",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "profile"]
-            }
-          }
-        },
-        {
-          "name": "Update Profile",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Operations Director\",\n  \"phone\": \"+919876543210\",\n  \"location\": \"Mumbai Central\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/profile",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "profile"]
-            }
-          }
-        },
-        {
-          "name": "Change Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"currentPassword\": \"AdminPass123!\",\n  \"newPassword\": \"UpdatedPass123!\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/profile/change-password",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "profile", "change-password"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "03. Admin Groups",
-      "item": [
-        {
-          "name": "List Groups",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/groups?page=1&limit=20&sort_by=name&order=asc",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "groups"],
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" },
-                { "key": "sort_by", "value": "name" },
-                { "key": "order", "value": "asc" }
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profile"
               ]
             }
-          }
-        },
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02. Setup Data (Admin)",
+      "item": [
         {
           "name": "Create Group",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.group && res.group.id) {",
-                  "    pm.environment.set('groupId', res.group.id);",
-                  "    console.log('Saved groupId: ' + res.group.id);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "POST",
             "header": [
@@ -314,124 +138,42 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Fleet Platinum\",\n  \"discountPercent\": 10.0,\n  \"description\": \"Corporate fleet partners discount\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/admin/groups",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "groups"]
-            }
-          }
-        },
-        {
-          "name": "Update Group",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "groups"
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Fleet Platinum Plus\",\n  \"discountPercent\": 12.0,\n  \"description\": \"Expanded fleet partnership tier\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/groups/{{groupId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "groups", "{{groupId}}"]
-            }
-          }
-        },
-        {
-          "name": "Toggle Group Active",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+              "raw": "{\n  \"name\": \"Fleet Platinum\",\n  \"discountPercent\": 10.0,\n  \"description\": \"Corporate fleet partners\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
               }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/groups/{{groupId}}/toggle-active",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "groups", "{{groupId}}", "toggle-active"]
             }
-          }
-        },
-        {
-          "name": "Delete Group",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [201]', function () { pm.expect(pm.response.code).to.be.oneOf([201]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.group && res.group.id) { pm.environment.set('groupId', res.group && res.group.id); }"
+                ]
               }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/groups/{{groupId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "groups", "{{groupId}}"]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "04. Admin Customers",
-      "item": [
-        {
-          "name": "List Customers",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/customers?page=1&limit=20&sort_by=registeredAt&order=desc",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers"],
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" },
-                { "key": "sort_by", "value": "registeredAt" },
-                { "key": "order", "value": "desc" }
-              ]
-            }
-          }
+          ]
         },
         {
           "name": "Create Customer",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.customer && res.customer.id) {",
-                  "    pm.environment.set('customerId', res.customer.id);",
-                  "    if (res.customer.qrToken) {",
-                  "        pm.environment.set('qrToken', res.customer.qrToken);",
-                  "    }",
-                  "    console.log('Saved customerId: ' + res.customer.id);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "POST",
             "header": [
@@ -444,171 +186,42 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Suresh Kumar\",\n  \"phone\": \"+919811122233\",\n  \"email\": \"suresh@example.com\",\n  \"vehicle\": \"MH12CD5678\",\n  \"groupId\": \"{{groupId}}\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/admin/customers",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers"]
-            }
-          }
-        },
-        {
-          "name": "Get Customer Details",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/customers/{{customerId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers", "{{customerId}}"]
-            }
-          }
-        },
-        {
-          "name": "Update Customer",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Suresh K. Sharma\",\n  \"vehicle\": \"MH12CD9999\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/customers/{{customerId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers", "{{customerId}}"]
-            }
-          }
-        },
-        {
-          "name": "Update Customer Status",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"active\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/customers/{{customerId}}/status",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers", "{{customerId}}", "status"]
-            }
-          }
-        },
-        {
-          "name": "Assign Customer Group",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"groupId\": \"{{groupId}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/customers/{{customerId}}/group",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers", "{{customerId}}", "group"]
-            }
-          }
-        },
-        {
-          "name": "Delete Customer",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/customers/{{customerId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "customers", "{{customerId}}"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "05. Admin Workers",
-      "item": [
-        {
-          "name": "List Workers",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/workers?page=1&limit=20&sort_by=name&order=asc",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "workers"],
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" },
-                { "key": "sort_by", "value": "name" },
-                { "key": "order", "value": "asc" }
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Suresh Kumar\",\n  \"phone\": \"{{customerPhone}}\",\n  \"email\": \"suresh@example.com\",\n  \"vehicle\": \"MH12CD5678\",\n  \"groupId\": \"{{groupId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [201]', function () { pm.expect(pm.response.code).to.be.oneOf([201]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.customer && res.customer.id) { pm.environment.set('customerId', res.customer && res.customer.id); }"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Create Worker",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.worker && res.worker.id) {",
-                  "    pm.environment.set('workerId', res.worker.id);",
-                  "    console.log('Saved workerId: ' + res.worker.id);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "POST",
             "header": [
@@ -621,148 +234,508 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Attendant Ramesh\",\n  \"phone\": \"+919822334455\",\n  \"email\": \"ramesh@fuelpoint.local\",\n  \"shift\": \"Morning\",\n  \"status\": \"active\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/admin/workers",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "workers"]
-            }
-          }
-        },
-        {
-          "name": "Get Worker Details",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/workers/{{workerId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "workers", "{{workerId}}"]
-            }
-          }
-        },
-        {
-          "name": "Update Worker",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers"
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Ramesh Patil\",\n  \"shift\": \"Evening\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/workers/{{workerId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "workers", "{{workerId}}"]
-            }
-          }
-        },
-        {
-          "name": "Update Worker Status",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
+              "raw": "{\n  \"name\": \"Attendant Ramesh\",\n  \"phone\": \"{{workerPhone}}\",\n  \"email\": \"ramesh@fuelpoint.local\",\n  \"shift\": \"Morning\",\n  \"status\": \"active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
               }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"active\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/workers/{{workerId}}/status",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "workers", "{{workerId}}", "status"]
             }
-          }
-        },
-        {
-          "name": "Delete Worker",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [201]', function () { pm.expect(pm.response.code).to.be.oneOf([201]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.worker && res.worker.id) { pm.environment.set('workerId', res.worker && res.worker.id); }"
+                ]
               }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/workers/{{workerId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "workers", "{{workerId}}"]
             }
-          }
+          ]
         }
       ]
     },
     {
-      "name": "06. Admin Transactions",
+      "name": "03. Worker Login (OTP)",
       "item": [
         {
-          "name": "List Transactions",
+          "name": "Request Worker OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/otp/request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "otp",
+                "request"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination\": \"{{workerPhone}}\",\n  \"purpose\": \"login\",\n  \"channel\": \"sms\",\n  \"actor_type\": \"worker\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The OTP code is NOT returned by the API. In development it is printed in the terminal where `npm run dev` is running (line `Code: ......`). Copy it into the environment variable named in the next request, then send that request. Paste the code into the environment variable workerOtp."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Worker OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/otp/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "otp",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination\": \"{{workerPhone}}\",\n  \"code\": \"{{workerOtp}}\",\n  \"actor_type\": \"worker\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.accessToken) { pm.environment.set('workerToken', res.accessToken); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04. Customer Login (OTP)",
+      "item": [
+        {
+          "name": "Request Customer OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/otp/request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "otp",
+                "request"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination\": \"{{customerPhone}}\",\n  \"purpose\": \"login\",\n  \"channel\": \"sms\",\n  \"actor_type\": \"customer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The OTP code is NOT returned by the API. In development it is printed in the terminal where `npm run dev` is running (line `Code: ......`). Copy it into the environment variable named in the next request, then send that request. Paste the code into the environment variable customerOtp."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Customer OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/otp/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "otp",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination\": \"{{customerPhone}}\",\n  \"code\": \"{{customerOtp}}\",\n  \"actor_type\": \"customer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.accessToken) { pm.environment.set('customerToken', res.accessToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Customer QR",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{customerToken}}"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/transactions?page=1&limit=20&sort_by=submitted_at&order=desc",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "transactions"],
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" },
-                { "key": "sort_by", "value": "submitted_at" },
-                { "key": "order", "value": "desc" }
+              "raw": "{{baseUrl}}/customer/qr",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customer",
+                "qr"
               ]
             }
-          }
-        },
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.qrToken) { pm.environment.set('qrToken', res.qrToken); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05. Customer Self-Registration (OTP)",
+      "item": [
         {
-          "name": "Get Transaction Details",
+          "name": "Request Register OTP",
           "request": {
-            "method": "GET",
+            "method": "POST",
             "header": [
               {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/transactions/{{transactionId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "transactions", "{{transactionId}}"]
+              "raw": "{{baseUrl}}/auth/otp/request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "otp",
+                "request"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination\": \"{{registerPhone}}\",\n  \"purpose\": \"register\",\n  \"channel\": \"sms\",\n  \"actor_type\": \"customer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The OTP code is NOT returned by the API. In development it is printed in the terminal where `npm run dev` is running (line `Code: ......`). Copy it into the environment variable named in the next request, then send that request. Paste the code into the environment variable registerOtp."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
             }
-          }
+          ]
         },
         {
-          "name": "Override Status (Mark Failed)",
+          "name": "Customer Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customer/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customer",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{registerPhone}}\",\n  \"name\": \"Rahul Dravid\",\n  \"code\": \"{{registerOtp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [201]', function () { pm.expect(pm.response.code).to.be.oneOf([201]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.customer && res.customer.id) { pm.environment.set('registeredCustomerId', res.customer && res.customer.id); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06. Fuelling Flow",
+      "item": [
+        {
+          "name": "Worker Scan QR",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{workerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/worker/scan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "worker",
+                "scan"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qrToken\": \"{{qrToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The scanTicket is valid for 5 minutes. Send Submit right after."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.scanTicket) { pm.environment.set('scanTicket', res.scanTicket); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Submit Transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{workerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/worker/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "worker",
+                "transactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{$guid}}\",\n  \"scanTicket\": \"{{scanTicket}}\",\n  \"amount\": \"1500.00\",\n  \"litres\": \"15.50\",\n  \"fuelType\": \"Petrol\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200,201]', function () { pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "if (res.id) { pm.environment.set('transactionId', res.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Mark Success",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{workerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/worker/transactions/{{transactionId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "worker",
+                "transactions",
+                "{{transactionId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"success\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Override To Failed",
           "request": {
             "method": "PATCH",
             "header": [
@@ -775,21 +748,178 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"failed\",\n  \"failureReason\": \"Pump meter discrepancy identified during station reconciliation\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/admin/transactions/{{transactionId}}/status",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "transactions", "{{transactionId}}", "status"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "transactions",
+                "{{transactionId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"failed\",\n  \"failureReason\": \"Pump meter discrepancy\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Set Back To Success",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/transactions/{{transactionId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "transactions",
+                "{{transactionId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"success\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Transaction History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customer/transactions?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customer",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Transaction History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{workerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/worker/transactions?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "worker",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "07. Admin Dashboard",
+      "name": "07. Admin Views",
       "item": [
         {
           "name": "Dashboard Overview",
@@ -803,13 +933,30 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/dashboard/overview",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "dashboard", "overview"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "dashboard",
+                "overview"
+              ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Dashboard Series",
+          "name": "Dashboard Series (7 days)",
           "request": {
             "method": "GET",
             "header": [
@@ -820,14 +967,36 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/dashboard/series?days=7",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "dashboard", "series"],
-              "query": [{ "key": "days", "value": "7" }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "dashboard",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                }
+              ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Worker Activity",
+          "name": "Dashboard Worker Activity",
           "request": {
             "method": "GET",
             "header": [
@@ -838,13 +1007,30 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/dashboard/worker-activity",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "dashboard", "worker-activity"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "dashboard",
+                "worker-activity"
+              ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Group Distribution",
+          "name": "Dashboard Group Distribution",
           "request": {
             "method": "GET",
             "header": [
@@ -855,18 +1041,30 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/dashboard/group-distribution",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "dashboard", "group-distribution"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "dashboard",
+                "group-distribution"
+              ]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "08. Admin Reports",
-      "item": [
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
         {
-          "name": "Reports Summary",
+          "name": "Reports Summary (transactions)",
           "request": {
             "method": "GET",
             "header": [
@@ -877,14 +1075,36 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/reports/summary?category=transactions",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "reports", "summary"],
-              "query": [{ "key": "category", "value": "transactions" }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "transactions"
+                }
+              ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Export Report (CSV)",
+          "name": "Reports Export CSV",
           "request": {
             "method": "GET",
             "header": [
@@ -895,20 +1115,38 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/reports/export?category=transactions&format=csv",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "reports", "export"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "export"
+              ],
               "query": [
-                { "key": "category", "value": "transactions" },
-                { "key": "format", "value": "csv" }
+                {
+                  "key": "category",
+                  "value": "transactions"
+                },
+                {
+                  "key": "format",
+                  "value": "csv"
+                }
               ]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "09. Admin Search",
-      "item": [
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
         {
           "name": "Global Search",
           "request": {
@@ -920,34 +1158,36 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/search?q=Vijay",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "search"],
-              "query": [{ "key": "q", "value": "Vijay" }]
+              "raw": "{{baseUrl}}/admin/search?q=Suresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "Suresh"
+                }
+              ]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "10. Admin Notifications",
-      "item": [
-        {
-          "name": "List Notifications",
+          },
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.notifications && res.notifications.length > 0) {",
-                  "    pm.environment.set('notificationId', res.notifications[0].id);",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Notifications List",
           "request": {
             "method": "GET",
             "header": [
@@ -958,14 +1198,38 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/notifications?limit=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "notifications"],
-              "query": [{ "key": "limit", "value": "20" }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "let res = {}; try { res = pm.response.json(); } catch (e) {}",
+                  "const n = (res.notifications || [])[0];",
+                  "if (n) { pm.environment.set('notificationId', n.id); }"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Mark Notification Read",
+          "name": "Notification Mark Read",
           "request": {
             "method": "PATCH",
             "header": [
@@ -976,13 +1240,31 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/notifications/{{notificationId}}/read",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "notifications", "{{notificationId}}", "read"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Mark All Notifications Read",
+          "name": "Notifications Mark All Read",
           "request": {
             "method": "POST",
             "header": [
@@ -993,18 +1275,30 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/notifications/mark-all-read",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "notifications", "mark-all-read"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "notifications",
+                "mark-all-read"
+              ]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "11. Admin Audit Logs",
-      "item": [
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
         {
-          "name": "List Audit Logs",
+          "name": "Audit Logs",
           "request": {
             "method": "GET",
             "header": [
@@ -1015,239 +1309,1259 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/admin/audit-logs?page=1&limit=25",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "audit-logs"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "25" }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
               ]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "12. Customer Mobile App",
-      "item": [
-        {
-          "name": "Customer Register (with OTP)",
+          },
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.accessToken) {",
-                  "    pm.environment.set('customerToken', res.accessToken);",
-                  "}",
-                  "if (res.customer && res.customer.qrToken) {",
-                  "    pm.environment.set('qrToken', res.customer.qrToken);",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
               }
             }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"+919833445566\",\n  \"name\": \"Rahul Dravid\",\n  \"code\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/customer/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["customer", "register"]
-            }
-          }
+          ]
         },
         {
-          "name": "Get Customer QR Code",
+          "name": "Transactions List",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{customerToken}}"
+                "value": "Bearer {{adminToken}}"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/customer/qr",
-              "host": ["{{baseUrl}}"],
-              "path": ["customer", "qr"]
+              "raw": "{{baseUrl}}/admin/transactions?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
             }
-          }
-        },
-        {
-          "name": "Regenerate Customer QR Code",
+          },
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.qrToken) {",
-                  "    pm.environment.set('qrToken', res.qrToken);",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
               }
             }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{customerToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/customer/qr/regenerate",
-              "host": ["{{baseUrl}}"],
-              "path": ["customer", "qr", "regenerate"]
-            }
-          }
+          ]
         },
         {
-          "name": "Get Customer Transactions",
+          "name": "Transaction Detail",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{customerToken}}"
+                "value": "Bearer {{adminToken}}"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/customer/transactions?page=1&limit=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["customer", "transactions"],
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" }
+              "raw": "{{baseUrl}}/admin/transactions/{{transactionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "transactions",
+                "{{transactionId}}"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "13. Worker Mobile App",
+      "name": "08. Admin Management",
       "item": [
         {
-          "name": "Scan Customer QR",
+          "name": "Groups List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/groups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "groups"
+              ]
+            }
+          },
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.scanTicket) {",
-                  "    pm.environment.set('scanTicket', res.scanTicket);",
-                  "    console.log('Saved scanTicket');",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
               }
             }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{workerToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"qrToken\": \"{{qrToken}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/worker/scan",
-              "host": ["{{baseUrl}}"],
-              "path": ["worker", "scan"]
-            }
-          }
+          ]
         },
         {
-          "name": "Submit Transaction",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const res = pm.response.json();",
-                  "if (res.id) {",
-                  "    pm.environment.set('transactionId', res.id);",
-                  "    console.log('Saved transactionId: ' + res.id);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{workerToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"scanTicket\": \"{{scanTicket}}\",\n  \"amount\": \"1500.00\",\n  \"litres\": \"15.50\",\n  \"fuelType\": \"Petrol\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/worker/transactions",
-              "host": ["{{baseUrl}}"],
-              "path": ["worker", "transactions"]
-            }
-          }
-        },
-        {
-          "name": "Update Transaction Status (Worker)",
+          "name": "Group Update",
           "request": {
             "method": "PATCH",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{workerToken}}"
+                "value": "Bearer {{adminToken}}"
               },
               {
                 "key": "Content-Type",
                 "value": "application/json"
               }
             ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "groups",
+                "{{groupId}}"
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"success\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/worker/transactions/{{transactionId}}/status",
-              "host": ["{{baseUrl}}"],
-              "path": ["worker", "transactions", "{{transactionId}}", "status"]
+              "raw": "{\n  \"name\": \"Fleet Platinum Plus\",\n  \"discountPercent\": 12.0,\n  \"description\": \"Expanded tier\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Get Worker Transactions",
+          "name": "Group Toggle Off",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/groups/{{groupId}}/toggle-active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "groups",
+                "{{groupId}}",
+                "toggle-active"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Group Toggle On",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/groups/{{groupId}}/toggle-active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "groups",
+                "{{groupId}}",
+                "toggle-active"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customers List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{customerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Update",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{customerId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Suresh K. Sharma\",\n  \"vehicle\": \"MH12CD9999\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Set Inactive",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{customerId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{customerId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Set Active",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{customerId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{customerId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Assign Group",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{customerId}}/group",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{customerId}}",
+                "group"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Workers List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/workers?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/workers/{{workerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers",
+                "{{workerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Update",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/workers/{{workerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers",
+                "{{workerId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ramesh Patil\",\n  \"shift\": \"Evening\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Set Offline",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/workers/{{workerId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers",
+                "{{workerId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"offline\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Set Active",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/workers/{{workerId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers",
+                "{{workerId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Profile Update (location only)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location\": \"Mumbai Central\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09. Cleanup (Deletes)",
+      "item": [
+        {
+          "name": "Delete Registered Customer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{registeredCustomerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{registeredCustomerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200,204,404]', function () { pm.expect(pm.response.code).to.be.oneOf([200,204,404]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Customer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "customers",
+                "{{customerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200,204]', function () { pm.expect(pm.response.code).to.be.oneOf([200,204]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Worker",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/workers/{{workerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "workers",
+                "{{workerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200,204]', function () { pm.expect(pm.response.code).to.be.oneOf([200,204]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Group",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "groups",
+                "{{groupId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200,204]', function () { pm.expect(pm.response.code).to.be.oneOf([200,204]); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run these last. They soft-delete the test data so the whole flow can be repeated."
+    },
+    {
+      "name": "10. Optional Auth Tests",
+      "item": [
+        {
+          "name": "Refresh Token (uses cookie)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout (this device)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allDevices\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/admin/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "forgot-password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset Password (sample token, expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/admin/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "admin",
+                "reset-password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"sample-reset-token\",\n  \"newPassword\": \"NewAdminPass123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [400]', function () { pm.expect(pm.response.code).to.be.oneOf([400]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change Password (WARNING: really changes it)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profile/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profile",
+                "change-password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{adminPassword}}\",\n  \"newPassword\": \"{{adminNewPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "This REALLY changes the admin password. Afterwards set adminPassword to the new value or change it back. Not part of the normal run."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run these separately. Logout ends your admin refresh session; log in again afterwards. Change Password really changes the password."
+    },
+    {
+      "name": "11. Profile Endpoints (after Task 23)",
+      "item": [
+        {
+          "name": "Customer Profile (Get)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customer/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customer",
+                "profile"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer Profile (Update)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customer/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customer",
+                "profile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle\": \"MH12CD0001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Worker Profile (Get)",
           "request": {
             "method": "GET",
             "header": [
@@ -1257,34 +2571,30 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/worker/transactions?page=1&limit=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["worker", "transactions"],
-              "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" }
+              "raw": "{{baseUrl}}/worker/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "worker",
+                "profile"
               ]
             }
-          }
-        }
-      ]
-    },
-    {
-      "name": "14. Health Check",
-      "item": [
-        {
-          "name": "System Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["health"]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of [200]', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
             }
-          }
+          ]
         }
-      ]
+      ],
+      "description": "These endpoints are documented but were not implemented when this collection was made. They return 404 until Task 23 is done."
     }
   ]
 }

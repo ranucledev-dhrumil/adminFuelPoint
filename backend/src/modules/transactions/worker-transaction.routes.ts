@@ -4,11 +4,15 @@ import { authMiddleware, requireRole } from "../../common/middleware/auth.js";
 import { workerScanRateLimiter } from "../../common/middleware/rate-limiter.js";
 import { validateRequest } from "../../common/middleware/validate.js";
 import { transactionController } from "./transaction.controller.js";
+import { workerController } from "../workers/worker.controller.js";
 
 const router = Router();
 
 // Require worker authentication for all worker endpoints
 router.use(authMiddleware, requireRole("worker"));
+
+// Worker mobile profile endpoint (read-only)
+router.get("/profile", workerController.getProfile);
 
 const scanSchema = z.object({
   qrToken: z.string().trim().min(1, "QR token is required"),

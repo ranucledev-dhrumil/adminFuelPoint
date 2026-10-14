@@ -202,6 +202,7 @@ export interface AdminTransactionQueryParams {
   groupId?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
+  q?: string | undefined;
 }
 
 export interface Notification {

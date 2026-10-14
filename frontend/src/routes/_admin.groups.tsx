@@ -65,7 +65,7 @@ export const Route = createFileRoute("/_admin/groups")({
 interface GroupFormData {
   id: string;
   name: string;
-  discountPercent: number;
+  discountPercent: number | string;
   description: string;
   active: boolean;
 }
@@ -73,7 +73,7 @@ interface GroupFormData {
 const blankGroup: GroupFormData = {
   id: "",
   name: "",
-  discountPercent: 1,
+  discountPercent: "",
   description: "",
   active: true,
 };
@@ -166,12 +166,21 @@ function GroupsPage() {
   });
 
   const assignMutation = useMutation({
-    mutationFn: ({ customerId, groupId }: { customerId: string; groupId: string }) =>
-      customersApi.assignGroup(customerId, groupId),
-    onSuccess: () => {
+    mutationFn: ({
+      customerId,
+      groupId,
+      customerName,
+      groupName,
+    }: {
+      customerId: string;
+      groupId: string;
+      customerName: string;
+      groupName: string;
+    }) => customersApi.assignGroup(customerId, groupId).then(() => ({ customerName, groupName })),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "customers"] });
-      toast.success("Customer assigned", { description: assignTarget?.name });
+      toast.success(`${data.customerName} assigned to ${data.groupName}`);
       setAssignCustomer("");
       setAssignTarget(null);
     },
@@ -399,9 +408,8 @@ function GroupsPage() {
                     max={100}
                     step={0.5}
                     value={editing.discountPercent}
-                    onChange={(e) =>
-                      setEditing({ ...editing, discountPercent: Number(e.target.value) })
-                    }
+                    placeholder="0"
+                    onChange={(e) => setEditing({ ...editing, discountPercent: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -504,9 +512,12 @@ function GroupsPage() {
                 <Button
                   disabled={!assignCustomer || assignMutation.isPending}
                   onClick={() => {
+                    const matchedCustomer = customerList?.data.find((c) => c.id === assignCustomer);
                     assignMutation.mutate({
                       customerId: assignCustomer,
                       groupId: assignTarget.id,
+                      customerName: matchedCustomer?.name || "Customer",
+                      groupName: assignTarget.name,
                     });
                   }}
                 >
